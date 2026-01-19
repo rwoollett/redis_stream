@@ -1,0 +1,8 @@
+
+====================[ Build | RedisNet | Release ]===============================
+
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -G "Unix Makefiles" . -B ./build
+
+Use the build folder to build:
+cmake --build build --target all
+

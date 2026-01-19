@@ -1,0 +1,43 @@
+services:
+  cache:
+    container_name: cache
+    image: redis:6.2-alpine
+    #build: .
+    restart: always
+    ports:
+      - "6379:6379"
+    command: [
+      "redis-server",
+      "--save", "20 1",
+      "--loglevel", "warning",
+      "--requirepass", "${REDIS_PASSWORD}",
+      "--tls-port", "6379",
+      "--port", "0",
+      "--tls-cert-file", "/tls/redis.crt",
+      "--tls-key-file", "/tls/redis.key",
+      "--tls-ca-cert-file", "/tls/ca.crt",
+      "--tls-auth-clients", "yes"
+    ]
+    healthcheck:
+      test: ["CMD", "redis-cli", 
+             "--tls", "--cert", "/tls/redis.crt",
+             "--key", "/tls/redis.key",
+             "--cacert", "/tls/ca.crt", 
+             "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
+    volumes: 
+      - cache:/data
+      - ./tls:/tls:z
+    networks:
+      - redisnet-ver1-network
+
+volumes:
+  cache:
+
+networks:
+  redisnet-ver1-network:
+    driver: bridge
+

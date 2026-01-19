@@ -1,0 +1,9 @@
+build
+boost_1_71_0
+boost_1_86_0
+redisnet_go.sh
+redisnet_stop.sh
+/.vs/
+/.vscode/*.json
+scratch.txt
+
