@@ -16,10 +16,11 @@ int main(int argc, char **argv)
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_channel = std::getenv("REDIS_CHANNEL");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
+  const char *redis_service_group = std::getenv("REDIS_SERVICE_GROUP");
 
-  if (!(redis_host && redis_port && redis_password && redis_channel))
+  if (!(redis_host && redis_port && redis_password && redis_channel && redis_service_group))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_SERVICE_GROUP, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
   if (argc > 1)
@@ -78,6 +79,11 @@ int main(int argc, char **argv)
 
       std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     }
+  }
+  catch (const std::exception &e)
+  {
+    std::cout << e.what() << "\n";
+    return EXIT_FAILURE;
   }
   catch (const std::string &e)
   {

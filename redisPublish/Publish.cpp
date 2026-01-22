@@ -20,6 +20,8 @@ namespace RedisPublish
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
+  static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
+  static const char *REDIS_SERVICE_GROUP = std::getenv("REDIS_SERVICE_GROUP");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3;
@@ -80,7 +82,15 @@ namespace RedisPublish
                        m_isConnected{0},
                        m_sender_thread{}
   {
+    D(std::cerr << "Publishe created\n";)
+    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+    {
+      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_SERVICE_GROUP, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+    }
+
     asio::co_spawn(m_ioc.get_executor(), Publish::co_main(), asio::detached);
+
+
     m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });
   }
@@ -288,6 +298,42 @@ namespace RedisPublish
       }
 
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
+
+      // ------------------------------------------------------------
+      // Ensure the consumer group exists (idempotent)
+      // ------------------------------------------------------------
+      {
+        std::list<std::string> channels = splitByComma(REDIS_CHANNEL);
+        // Print the result
+        for (const auto &channel : channels)
+        {
+          std::cout << "REDIS channel stream: " << channel << std::endl;
+          redis::request req;
+          req.push("XGROUP", "CREATE",
+                  channel,                // stream name
+                  REDIS_SERVICE_GROUP,    // group name
+                  "$",                    // start at new messages
+                  "MKSTREAM");            // create stream if missing
+
+          redis::response<std::string> resp;
+
+          boost::system::error_code ec;
+          co_await m_conn->async_exec(req, resp,
+              asio::redirect_error(asio::use_awaitable, ec));
+
+          if (ec) {
+            std::string msg = ec.message();
+            // Ignore BUSYGROUP (group already exists)
+            if (msg.find("BUSYGROUP") == std::string::npos) {
+                std::cerr << "XGROUP CREATE failed: " << msg << std::endl;
+            } else {
+                std::cout << "XGROUP already exists, continuing\n";
+            }
+          } else {
+              std::cout << "XGROUP prerender_group created successfully\n";
+          }
+        }
+      }
 
       try
       {
