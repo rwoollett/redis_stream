@@ -36,14 +36,18 @@ int main(int argc, char **argv)
     std::cout << "Redis publisher connected: " << (redisPublish.isRedisConnected() ? "true" : "false") << std::endl;
 
     auto doPublish = [&redisPublish](const std::string &channel,
-                                     const std::string &msg = "default message")
+                                     const std::vector<std::pair<std::string,std::string>> &fields = {{"postid", "c1234"}})
     {
       if (!redisPublish.isRedisConnected())
       {
         std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
       } else {
-        redisPublish.enqueue_message(channel, msg);
-        std::cout << "Published message to channel: " << channel << " with message: " << msg << std::endl;
+        redisPublish.enqueue_message(channel, fields);
+        std::cout << "Published message to channel: " << channel << " with message: " << std::endl;
+        for (auto& [field, value] : fields) {
+          std::cout << field << " = " << value << std::endl;
+        }
+        std::cout << std::endl;
       }
     };
 
@@ -68,7 +72,7 @@ int main(int argc, char **argv)
       }
       else
       {
-        doPublish("csToken_request");
+        doPublish("csToken_request", {{"postid", "c1234"}, {"postname", "category"}});
         doPublish("csToken_acquire");
       }
 

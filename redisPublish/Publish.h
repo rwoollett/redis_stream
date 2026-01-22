@@ -15,6 +15,8 @@
 #include <condition_variable>
 #include <memory>
 #include <atomic>
+#include <vector>
+#include <utility>
 
 #ifdef HAVE_ASIO
 #include <boost/asio/connect.hpp>
@@ -47,14 +49,28 @@ namespace RedisPublish
 
   constexpr int BATCH_SIZE = 10;
   constexpr int CHANNEL_LENGTH = 64;
+  constexpr int FIELD_NAME_LENGTH = 64;
+  constexpr int FIELD_VALUE_LENGTH = 256;
   constexpr int MESSAGE_LENGTH = 256;
   constexpr int QUEUE_LENGTH = 128;
+  constexpr int MAX_FIELDS = 8;
 
-  struct PublishMessage
-  {
-    char channel[CHANNEL_LENGTH];
-    char message[MESSAGE_LENGTH];
+  struct FieldValue {
+    char field[FIELD_NAME_LENGTH];
+    char value[FIELD_VALUE_LENGTH];
   };
+
+  struct PublishMessage {
+    char channel[CHANNEL_LENGTH];
+    FieldValue fields[MAX_FIELDS];
+    int field_count;
+  };
+
+  // struct PublishMessage
+  // {
+  //   char channel[CHANNEL_LENGTH];
+  //   char message[MESSAGE_LENGTH];
+  // };
 
   class Publish
   {
@@ -76,7 +92,9 @@ namespace RedisPublish
     bool isRedisSignaled() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
 
-    void enqueue_message(const std::string &channel, const std::string &message);
+    void enqueue_message(
+      const std::string &channel, 
+      const std::vector<std::pair<std::string,std::string>> &fields);
 
   private:
     asio::awaitable<void> co_main();
@@ -92,7 +110,7 @@ namespace RedisPublish
     Sender(RedisPublish::Publish &publisher) : m_redisPublisher{publisher} {};
     ~Sender() {};
 
-    void Send(const std::string &channel, const std::string &message)
+    void Send(const std::string &channel, const std::vector<std::pair<std::string,std::string>> &message)
     {
       m_redisPublisher.enqueue_message(channel, message);
     };

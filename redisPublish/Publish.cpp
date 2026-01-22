@@ -17,39 +17,6 @@
 namespace RedisPublish
 {
 
-  // class Exception : public std::exception
-  // {
-  // protected:
-  //   /** Error message.
-  //    */
-  //   std::string msg_;
-
-  // public:
-  //   explicit Exception(const char *message) : msg_(message)
-  //   {
-  //   }
-
-  //   /** Constructor (C++ STL strings).
-  //    *  @param message The error message.
-  //    */
-  //   explicit Exception(const std::string &message) : msg_(message) {}
-
-  //   /** Destructor.
-  //    * Virtual to allow for subclassing.
-  //    */
-  //   virtual ~Exception() throw() {}
-
-  //   /** Returns a pointer to the (constant) error description.
-  //    *  @return A pointer to a const char*. The underlying memory
-  //    *          is in posession of the Exception object. Callers must
-  //    *          not attempt to free the memory.
-  //    */
-  //   virtual const char *what() const throw()
-  //   {
-  //     return msg_.c_str();
-  //   }
-  // };
-
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
@@ -148,7 +115,9 @@ namespace RedisPublish
     std::cerr << "Redis Publisher destroyed\n";
   }
 
-  void Publish::enqueue_message(const std::string &channel, const std::string &message)
+  void Publish::enqueue_message(
+    const std::string &channel, 
+    const std::vector<std::pair<std::string,std::string>> &fields)
   {
     if (m_signalStatus == 1)
       return;
@@ -156,11 +125,38 @@ namespace RedisPublish
     PublishMessage msg;
     std::strncpy(msg.channel, channel.c_str(), CHANNEL_LENGTH - 1);
     msg.channel[CHANNEL_LENGTH - 1] = '\0'; // Always null-terminate
-    std::strncpy(msg.message, message.c_str(), MESSAGE_LENGTH - 1);
-    msg.message[MESSAGE_LENGTH - 1] = '\0'; // Always null-terminate
+
+    msg.field_count = fields.size();
+    int i = 0;
+    for (const auto& [in_field, in_value] : fields) {
+      std::cout << in_field << " " << in_value << " sizes " << in_field.size() << ", " << in_value.size() << std::endl;
+      strncpy(msg.fields[i].field, in_field.c_str(), FIELD_NAME_LENGTH - 1); 
+      msg.fields[i].field[FIELD_NAME_LENGTH - 1] = '\0';
+      strncpy(msg.fields[i].value, in_value.c_str(), FIELD_VALUE_LENGTH - 1);
+      msg.fields[i].value[FIELD_VALUE_LENGTH - 1] = '\0';
+      i++;
+    }
 
     cstokenQueuedCount++;
     msg_queue.push(msg);
+  }
+
+  void push_xadd(redis::request& req,
+               const std::string& stream,
+               const PublishMessage& m)
+  {
+      std::vector<std::string> args;
+      args.reserve(2 + m.field_count * 2);
+
+      args.push_back(stream);
+      args.push_back("*");
+
+      for (int i = 0; i < m.field_count; ++i) {
+          args.push_back(m.fields[i].field);
+          args.push_back(m.fields[i].value);
+      }
+
+      req.push_range("XADD", args);
   }
 
   asio::awaitable<void> Publish::process_messages()
@@ -203,50 +199,43 @@ namespace RedisPublish
 
       if (!batch.empty())
       {
-        redis::request req;
+        std::cout << "Amount batched " << batch.size() << std::endl;
         for (const auto &m : batch)
         {
-          req.push("PUBLISH", m.channel, m.message);
-        }
-        redis::generic_response resp;
-        req.get_config().cancel_if_not_connected = true;
-        co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+          //req.push("PUBLISH", "csToken_request", "my message");
+          //req.push("XADD", "csToken_request", "*", "postid", "1234", "postname", "test"); // THIS IS GOOD
 
-        if (ec)
-        {
-          std::cout << "Perform a full reconnect to redis. Batch size: " << batch.size()
-                    << ". Reason for error: " << ec.message()
-                    << std::endl;
-          // Perform a full reconnect to redis
-          for (const auto &m : batch)
-          {
-            msg_queue.push(m);
-            cstokenMessageCount--;
-          }
+          redis::request req;
+          push_xadd(req, m.channel, m);
 
-          break; // Connection lost, break so we can exit function and try reconnect to redis.
-        }
-        else
-        {
-          for (const auto &node : resp.value())
+          redis::response<std::string> resp;
+          req.get_config().cancel_if_not_connected = true;
+          co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+
+          if (ec)
           {
-            if (node.data_type == redis::resp3::type::number)
+            std::cout << "Perform a full reconnect to redis. Reason for error: " << ec.message() << std::endl;
+            for (const auto &m : batch)
             {
-              // Process number
-              if (std::atoi(std::string(node.value).c_str()) > 0)
-                cstokenSuccessCount++;
+              msg_queue.push(m);
+              cstokenMessageCount--;
             }
-            cstokenPublishedCount++;
+            co_return; // Connection lost, exit function and try reconnect to redis.
           }
 
-          D(std::cout
+          cstokenPublishedCount++;
+
+          std::string XID = std::get<0>(resp).value();
+          std::cout << "XADD ID: " << XID << std::endl;
+
+          std::cout
                 << "Redis publish: " << " batch size: " << batch.size() << ". "
                 << cstokenQueuedCount << " queued, "
                 << cstokenMessageCount << " sent, "
                 << cstokenPublishedCount << " published. "
-                << cstokenSuccessCount << " successful subscribes made. "
-                //<< ", payload [" << msg.message << "]"
-                << std::endl;)
+                //<< cstokenSuccessCount << " successful subscribes made. "
+                << std::endl;
+          
         }
       }
       else
