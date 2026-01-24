@@ -18,15 +18,22 @@ int main(int argc, char **argv)
   int result = EXIT_SUCCESS;
   const char *redis_host = std::getenv("REDIS_HOST");
   const char *redis_port = std::getenv("REDIS_PORT");
+  const char *redis_service_group = std::getenv("REDIS_SERVICE_GROUP");
   const char *redis_channel = std::getenv("REDIS_CHANNEL");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
-  if (!(redis_host && redis_port && redis_password && redis_channel))
+  if (!(redis_host && redis_port && redis_password && redis_service_group && redis_channel))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
   
+  if (argc < 2)
+  {
+    std::cout << "Require cmd arg for unique id. ie. worker_$$_$count.." << std::endl;
+    exit(1);
+  }
+
   boost::asio::io_context main_ioc;
   boost::asio::signal_set sig_set(main_ioc.get_executor(), SIGINT, SIGTERM);
 #if defined(SIGQUIT)
@@ -39,6 +46,7 @@ int main(int argc, char **argv)
   sig_set.async_wait(
     [&](const boost::system::error_code &, int)
     {
+      D(std::cout << "Main ioc is signalled" << std::endl;)
       m_worker_shall_stop = 1;
       awakener.stop();
     });
@@ -48,7 +56,7 @@ int main(int argc, char **argv)
 
   try
   {
-    RedisSubscribe::Subscribe redisSubscribe;
+    RedisSubscribe::Subscribe redisSubscribe(argv[1]);
     redisSubscribe.main_redis(awakener);
     std::cout << "Application loop stated\n";
     while (!m_worker_shall_stop)

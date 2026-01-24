@@ -16,6 +16,7 @@ namespace RedisSubscribe
 
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
+  static const char *REDIS_SERVICE_GROUP = std::getenv("REDIS_SERVICE_GROUP");
   static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
@@ -71,17 +72,18 @@ namespace RedisSubscribe
     }
   }
 
-  Subscribe::Subscribe() : m_ioc{3},
+  Subscribe::Subscribe(const std::string &workerId) : m_ioc{3},
                            m_conn{},
                            m_signalStatus{0},
                            cstokenSubscribedCount{0},
                            cstokenMessageCount{0},
-                           m_isConnected{0}
+                           m_isConnected{0},
+                           m_worker_id(workerId)
   {
     D(std::cerr << "Subscribe created\n";)
-    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
   }
 
@@ -110,45 +112,49 @@ namespace RedisSubscribe
     }
 
     redis::request req;
-    req.push_range("SUBSCRIBE", channels);
+    std::vector<std::string> args;
+    args.reserve(6 + channels.size() * 2);
+
+    args.push_back("GROUP");
+    args.push_back(REDIS_SERVICE_GROUP);
+    args.push_back(m_worker_id);
+    args.push_back("BLOCK");
+    args.push_back("0");
+    args.push_back("STREAMS");
+
+    size_t index = 0;
+    for (auto it = channels.begin(); it != channels.end(); ++it, ++index) {
+        std::cout << "Index " << index << ": " << *it << '\n';
+        args.push_back(*it);
+    }
+    for (int i = 0; i < channels.size(); ++i) {
+        args.push_back(">");
+    }
+
+    //req.push_range("SUBSCRIBE", channels);
+    //req.push("XREADGROUP", "GROUP", REDIS_SERVICE_GROUP, m_worker_id, "BLOCK", "0", "STREAMS", ..., ">");
+    req.push_range("XREADGROUP", args);
 
     redis::generic_response resp;
-    D(std::cout << "- Subscribe::receiver try connenct" << std::endl;)
 
-    // Reconnect to channels.
-    // std::cout << "Configure ssl env is " << REDIS_USE_SSL << "\n";
-    // if (std::string(REDIS_USE_SSL) == "on")
-    // {
-    //   std::cout << "Configure ssl next layer\n";
-    //   m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
-    //   m_conn->next_layer().set_verify_callback(verify_certificate);
-    // }
-    m_conn->set_receive_response(resp);
-
+    //m_conn->set_receive_response(resp);
     // req.get_config().cancel_if_not_connected = true;
-    co_await m_conn->async_exec(req, redis::ignore, asio::deferred);
-
-    awakener.on_subscribe();
     m_isConnected = 1;
     m_reconnectCount = 0; // reset
-    // Loop reading Redis pushs messages.
+
+    // Loop reading Redis pulling messages.
     for (boost::system::error_code ec;;)
     {
 
-      D(std::cout << "- Subscribe::receiver generic response " << ec.message() << std::endl;)
-      // First tries to read any buffered pushes.
-      m_conn->receive(ec);
-      if (ec == redis::error::sync_receive_push_failed)
-      {
-        ec = {};
-        co_await m_conn->async_receive(asio::redirect_error(asio::use_awaitable, ec));
-      }
+      D(std::cout << "- Subscribe::receiver blocking until message response " << ec.message() << std::endl;)
+      co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
       if (ec)
       {
         std::cout << "- Subscribe::receiver ec " << ec.message() << std::endl;
         break; // Connection lost, break so we can reconnect to channels.
       }
+      awakener.on_subscribe();
 
       int amount = resp.value().size();
       int index = 0;
@@ -223,9 +229,10 @@ namespace RedisSubscribe
                   << cstokenMessageCount << " successful messages received. " << std::endl
                   << messages.size() << " messages in this response received. "
                   << amount << " size of resp. " << std::endl;
-        std::cout << "******************************************************\n\n";)
+        std::cout << "******************************************************\n";)
 
       awakener.broadcast_messages(messages);
+      D(std::cout << "******************************************************\n\n";)
 
       resp.value().clear(); // Clear the response value to avoid processing old messages again.
       redis::consume_one(resp);
@@ -245,7 +252,8 @@ namespace RedisSubscribe
       std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
     }
-
+    std::cout << "Worker id: "  << m_worker_id << std::endl;
+    
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
@@ -254,6 +262,7 @@ namespace RedisSubscribe
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
+          D(std::cout << "- Subscribe is signalled" << std::endl;)
           m_signalStatus = 1;
           awakener.stop();
         });

@@ -82,10 +82,11 @@ namespace RedisSubscribe
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_receiver_thread;
     int m_reconnectCount{0};
+    std::string m_worker_id;
 
   public:
     /// Constructor
-    Subscribe();
+    Subscribe(const std::string &workerId);
 
     /// Deconstructor
     virtual ~Subscribe();

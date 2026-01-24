@@ -24,15 +24,15 @@ if test "$DIE" -eq 1; then
   exit 1
 fi
 
-(docker compose up -d)
+# (docker compose up -d)
 
 . ./set_env.sh
 
 
 count=1
-while [ $count -le 5 ]; do
+while [ $count -le 4 ]; do
   sleep .4
-  (./build/clientRedis/ClientRedis > output_scrb_$$_$count.log 2>&1 &)
+  (./build/clientRedis/ClientRedis worker_$$_$count > output_scrb_$$_$count.log 2>&1 &)
   ((count++))
 done
 

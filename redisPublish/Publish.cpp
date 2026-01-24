@@ -186,6 +186,41 @@ namespace RedisPublish
     {
       D(std::cout << "PING successful\n";)
     }
+    // ------------------------------------------------------------
+    // Ensure the consumer group exists (idempotent)
+    // ------------------------------------------------------------
+    {
+      std::list<std::string> channels = splitByComma(REDIS_CHANNEL);
+      // Print the result
+      for (const auto &channel : channels)
+      {
+        std::cout << "REDIS channel stream: " << channel << std::endl;
+        redis::request req;
+        req.push("XGROUP", "CREATE",
+                channel,                // stream name
+                REDIS_SERVICE_GROUP,    // group name
+                "$",                    // start at new messages
+                "MKSTREAM");            // create stream if missing
+
+        redis::response<std::string> resp;
+
+        boost::system::error_code ec;
+        co_await m_conn->async_exec(req, resp,
+            asio::redirect_error(asio::use_awaitable, ec));
+
+        if (ec) {
+          std::string msg = ec.message();
+          // Ignore BUSYGROUP (group already exists)
+          if (msg.find("BUSYGROUP") == std::string::npos) {
+              std::cerr << "XGROUP CREATE failed: " << msg << std::endl;
+          } else {
+              std::cout << "XGROUP already exists, continuing\n";
+          }
+        } else {
+            std::cout << "XGROUP prerender_group created successfully\n";
+        }
+      }
+    }
 
     m_isConnected = 1;
     m_reconnectCount = 0; // reset
@@ -299,41 +334,6 @@ namespace RedisPublish
 
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
 
-      // ------------------------------------------------------------
-      // Ensure the consumer group exists (idempotent)
-      // ------------------------------------------------------------
-      {
-        std::list<std::string> channels = splitByComma(REDIS_CHANNEL);
-        // Print the result
-        for (const auto &channel : channels)
-        {
-          std::cout << "REDIS channel stream: " << channel << std::endl;
-          redis::request req;
-          req.push("XGROUP", "CREATE",
-                  channel,                // stream name
-                  REDIS_SERVICE_GROUP,    // group name
-                  "$",                    // start at new messages
-                  "MKSTREAM");            // create stream if missing
-
-          redis::response<std::string> resp;
-
-          boost::system::error_code ec;
-          co_await m_conn->async_exec(req, resp,
-              asio::redirect_error(asio::use_awaitable, ec));
-
-          if (ec) {
-            std::string msg = ec.message();
-            // Ignore BUSYGROUP (group already exists)
-            if (msg.find("BUSYGROUP") == std::string::npos) {
-                std::cerr << "XGROUP CREATE failed: " << msg << std::endl;
-            } else {
-                std::cout << "XGROUP already exists, continuing\n";
-            }
-          } else {
-              std::cout << "XGROUP prerender_group created successfully\n";
-          }
-        }
-      }
 
       try
       {
