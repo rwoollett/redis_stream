@@ -1,43 +1,62 @@
 services:
-  cache:
-    container_name: cache
-    image: redis:6.2-alpine
-    #build: .
+  # cache:
+  #   container_name: cache
+  #   image: redis:6.2-alpine
+  #   #build: .
+  #   restart: always
+  #   ports:
+  #     - "6379:6379"
+  #   command: [
+  #     "redis-server",
+  #     "--save", "20 1",
+  #     "--loglevel", "warning",
+  #     "--requirepass", "${REDIS_PASSWORD}",
+  #     "--tls-port", "6379",
+  #     "--port", "0",
+  #     "--tls-cert-file", "/tls/redis.crt",
+  #     "--tls-key-file", "/tls/redis.key",
+  #     "--tls-ca-cert-file", "/tls/ca.crt",
+  #     "--tls-auth-clients", "yes"
+  #   ]
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", 
+  #            "--tls", "--cert", "/tls/redis.crt",
+  #            "--key", "/tls/redis.key",
+  #            "--cacert", "/tls/ca.crt", 
+  #            "--raw", "incr", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 2
+  #     start_period: 5s
+  #   volumes: 
+  #     - cache:/data
+  #     - ./tls:/tls:z
+  #   networks:
+  #     - redisnet-ver1-network
+
+  commander:
+    container_name: commander
+    image: ghcr.io/joeferner/redis-commander:latest
+    hostname: redis-commander
     restart: always
+    environment:
+      - REDIS_HOST=cache
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_TLS_CA_CERT_FILE=/tls/ca.crt
+      - REDIS_TLS_CERT_FILE=/tls/redis.crt 
+      - REDIS_TLS_KEY_FILE=/tls/redis.key
+      - REDIS_TLS_REJECT_UNAUTHORIZED=0
+      - REDIS_TLS_SERVER_NAME=Server
+      - REDIS_TLS=1
     ports:
-      - "6379:6379"
-    command: [
-      "redis-server",
-      "--save", "20 1",
-      "--loglevel", "warning",
-      "--requirepass", "${REDIS_PASSWORD}",
-      "--tls-port", "6379",
-      "--port", "0",
-      "--tls-cert-file", "/tls/redis.crt",
-      "--tls-key-file", "/tls/redis.key",
-      "--tls-ca-cert-file", "/tls/ca.crt",
-      "--tls-auth-clients", "yes"
-    ]
-    healthcheck:
-      test: ["CMD", "redis-cli", 
-             "--tls", "--cert", "/tls/redis.crt",
-             "--key", "/tls/redis.key",
-             "--cacert", "/tls/ca.crt", 
-             "--raw", "incr", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 2
-      start_period: 5s
+    - "8081:8081"
     volumes: 
-      - cache:/data
       - ./tls:/tls:z
     networks:
-      - redisnet-ver1-network
+      - deploy_services_netproc-ver3-network
 
-volumes:
-  cache:
 
 networks:
-  redisnet-ver1-network:
-    driver: bridge
+  deploy_services_netproc-ver3-network:
+    external: true
 

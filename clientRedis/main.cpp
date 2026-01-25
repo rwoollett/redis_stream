@@ -69,6 +69,8 @@ int main(int argc, char **argv)
         std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
       }
+
+      
     }
     std::cout << "Exited normally\n";
 
