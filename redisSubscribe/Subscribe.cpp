@@ -23,119 +23,99 @@ namespace RedisSubscribe
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3;
 
-  struct MessageEntryView {
-      std::string_view id;
-      std::vector<std::pair<std::string_view, std::string_view>> fields;
+  struct DispatchView {
+    std::string_view stream;
+    std::string_view id;
+    std::vector<std::pair<std::string_view, std::string_view>> fields;
   };
 
-  struct StreamMessagesView {
-      std::string_view stream_name;
-      std::vector<MessageEntryView> messages;
-  };
-
-  std::vector<StreamMessagesView>
-  parse_streams_view(const redis::generic_response& resp)
+  std::vector<DispatchView>
+  parse_dispatch_view(const redis::generic_response& resp)
   {
-      std::vector<StreamMessagesView> result;
+      std::vector<DispatchView> out;
 
       std::string_view current_stream;
-      MessageEntryView current_msg;
+      DispatchView current_msg;
       std::string_view current_key;
-
-      enum class State {
-          None,
-          InStream,
-          InEntry,
-          InFields
-      };
-
-      State state = State::None;
       int index = 0;
-      //int refmsg = cstokenMessageCount + cstokenSubscribedCount;
 
       for (auto const& n : resp.value())
       {
-          auto ancestorNode = (index > 1) ? resp.value().at(index - 2) : n;
-          auto prevNode = (index > 0) ? resp.value().at(index - 1) : n;
-          std::cout << "\n------------------------------------------------" << std::endl;
-          std::cout << "Reference " << index << std::endl;
-          if (ancestorNode != n)
-          {
-            std::cout << "index " << index << " ancestor node index " << index - 2 << std::endl;
-            std::cout << " value          " << ancestorNode.value << std::endl;
-            std::cout << " data_type      " << ancestorNode.data_type << std::endl;
-            std::cout << " aggregate_size " << ancestorNode.aggregate_size << std::endl;
-            std::cout << " depth          " << ancestorNode.depth << std::endl;
-            std::cout << std::endl;
-          }
-          if (prevNode != n)
-          {
-            std::cout << "index " << index << " previous node index " << index - 1 << std::endl;
-            std::cout << " value          " << prevNode.value << std::endl;
-            std::cout << " data_type      " << prevNode.data_type << std::endl;
-            std::cout << " aggregate_size " << prevNode.aggregate_size << std::endl;
-            std::cout << " depth          " << prevNode.depth << std::endl;
-            std::cout << std::endl;
-          }
-          std::cout << "index " << index << " current node" << std::endl;
-          std::cout << " value          " << n.value << std::endl;
-          std::cout << " data_type      " << n.data_type << std::endl;
-          std::cout << " aggregate_size " << n.aggregate_size << std::endl;
-          std::cout << " depth          " << n.depth << std::endl;
-          std::cout << std::endl;
 
-          // STREAM NAME (depth 1)
-          if (n.depth == 1 && n.data_type == boost::redis::resp3::type::blob_string)
+          // auto ancestorNode = (index > 1) ? resp.value().at(index - 2) : n;
+          // auto prevNode = (index > 0) ? resp.value().at(index - 1) : n;
+          // std::cout << "\n----parse_dispatch_view-----------------------------------" << std::endl;
+          // std::cout << "Reference " << index << std::endl;
+          // if (ancestorNode != n)
+          // {
+          //   std::cout << "index " << index << " ancestor node index " << index - 2 << std::endl;
+          //   std::cout << " value          " << ancestorNode.value << std::endl;
+          //   std::cout << " data_type      " << ancestorNode.data_type << std::endl;
+          //   std::cout << " aggregate_size " << ancestorNode.aggregate_size << std::endl;
+          //   std::cout << " depth          " << ancestorNode.depth << std::endl;
+          //   std::cout << std::endl;
+          // }
+          // if (prevNode != n)
+          // {
+          //   std::cout << "index " << index << " previous node index " << index - 1 << std::endl;
+          //   std::cout << " value          " << prevNode.value << std::endl;
+          //   std::cout << " data_type      " << prevNode.data_type << std::endl;
+          //   std::cout << " aggregate_size " << prevNode.aggregate_size << std::endl;
+          //   std::cout << " depth          " << prevNode.depth << std::endl;
+          //   std::cout << std::endl;
+          // }
+          // std::cout << "index " << index << " current node" << std::endl;
+          // std::cout << " value          " << n.value << std::endl;
+          // std::cout << " data_type      " << n.data_type << std::endl;
+          // std::cout << " aggregate_size " << n.aggregate_size << std::endl;
+          // std::cout << " depth          " << n.depth << std::endl;
+          // std::cout << std::endl;
+
+          // STREAM NAME
+          if (n.depth == 1 &&
+              n.data_type == boost::redis::resp3::type::blob_string)
           {
-              result.push_back({n.value, {}});
               current_stream = n.value;
-              state = State::InStream;
               continue;
           }
 
-          // MESSAGE ID (depth 3)
-          if (n.depth == 3 && n.data_type == boost::redis::resp3::type::blob_string)
+          // MESSAGE ID
+          if (n.depth == 3 &&
+              n.data_type == boost::redis::resp3::type::blob_string)
           {
-              // Push previous message if needed
+              // If we already have a message pending, push it
               if (!current_msg.id.empty()) {
-                std::cout << "1 push back\n MESSAGE\n";
-                  result.back().messages.push_back(std::move(current_msg));
-                std::cout << "2 push back\n MESSAGE\n";
-                  current_msg = MessageEntryView{};
+                  out.push_back(std::move(current_msg));
+                  current_msg = DispatchView{};
               }
 
+              current_msg.stream = current_stream;
               current_msg.id = n.value;
-              state = State::InEntry;
               continue;
           }
 
-          // FIELD KEY/VALUE (depth 4)
-          if (n.depth == 4 && n.data_type == boost::redis::resp3::type::blob_string)
+          // FIELD KEY/VALUE
+          if (n.depth == 4 &&
+              n.data_type == boost::redis::resp3::type::blob_string)
           {
               if (current_key.empty()) {
                   current_key = n.value;
               } else {
-                std::cout << "1 emplace back\n FIELD\n";
                   current_msg.fields.emplace_back(current_key, n.value);
-                std::cout << "2 emplace back\n FIELD\n";
                   current_key = {};
               }
-
-              state = State::InFields;
               continue;
           }
-
           index++;
       }
 
       // Push last message
       if (!current_msg.id.empty()) {
-          result.back().messages.push_back(std::move(current_msg));
+          out.push_back(std::move(current_msg));
       }
 
-      return result;
+      return out;
   }
-
 
   std::list<std::string> splitByComma(const char *str)
   {
@@ -214,6 +194,23 @@ namespace RedisSubscribe
     std::cerr << "Subscribe::handleError: " << msg << std::endl;
   };
 
+  asio::awaitable<void> Subscribe::xack(std::string_view stream, std::string_view id)
+  {
+      redis::request req;
+      req.push("XACK", stream, REDIS_SERVICE_GROUP, id);
+      std::cout << "- XACK'd work item:      [STREAM " << stream << "  ID " << id << "]  SERVICE GROUP " << REDIS_SERVICE_GROUP << std::endl;
+      co_await m_conn->async_exec(req, redis::ignore, asio::use_awaitable);
+  }
+
+  void Subscribe::xack_now(const std::string& stream, const std::string& id)
+  {
+      asio::co_spawn(
+          m_ioc,
+          xack(stream, id),
+          asio::detached
+      );
+  }
+
   auto Subscribe::receiver(Awakener &awakener) -> asio::awaitable<void>
   {
 
@@ -267,145 +264,43 @@ namespace RedisSubscribe
       }
       awakener.on_subscribe();
 
-      // if (resp.streams.empty())
-      //     continue;
+      auto dispatch_items = parse_dispatch_view(resp);
 
-      std::list<std::string> messages;
-
-      int amount = resp.value().size();
-      int index = 0;
-      int refmsg = cstokenMessageCount + cstokenSubscribedCount;
-      // The resp.value() is a vector of nodes, each node contains a value and a data_type.
-      // The SUBSCRIBE response is a vector of nodes, where the first node is the command name,
-      // the second node is the channel name, and the third node is the message payload.
-      // There can be multiple msg payloads for the same channel.
-      // So a size of 12 means there are 3 messages in the vector, the first message is at index 0,
-      // the second message is at index 4, and third at index 8.
-      D(std::cout << refmsg << " resp.value() information: amount: " << amount << std::endl;)
-      
-      ////// parse streams from resp
-      auto streams = parse_streams_view(resp);
-
-      for (auto& stream : streams)
+      for (auto& item : dispatch_items)
       {
-          std::cout << "STREAM: " << stream.stream_name << "\n";
+          // Debug
+          D(std::cout << "- STREAM: " << item.stream << "  ID " << item.id << "  Fields: ";
+          for (auto& [k, v] : item.fields)
+              std::cout << "  " << k << " = " << v ;
+          std::cout << std::endl;)
 
-          for (auto& msg : stream.messages)
-          {
-              std::cout << "  ID: " << msg.id << "\n";
+          // Convert to your queue format
+          std::unordered_map<std::string, std::string> field_map; 
+          field_map.reserve(item.fields.size());
 
-              for (auto& [key, value] : msg.fields)
-              {
-                  std::cout << "    " << key << " = " << value << "\n";
-              }
+          for (auto& [k, v] : item.fields)
+              field_map.emplace(std::string(k), std::string(v));
 
-              // Example: extract postid
-              // for (auto& [key, value] : msg.fields)
-              // {
-              //     if (key == "postid") {
-              //         awakener.broadcast_single(std::string(value)); // copy only here
-              //     }
-              // }
+          // Pass to your dispatcher
+          awakener.broadcast_single(
+              std::string(item.stream),   // service name
+              std::string(item.id),       // message ID
+              std::move(field_map)        // all fields
+          );
 
-              // ACK
-              redis::request ack;
-              ack.push("XACK", stream.stream_name, REDIS_SERVICE_GROUP, msg.id);
-              co_await m_conn->async_exec(ack, redis::ignore, asio::use_awaitable);
-          }
       }
 
+      // Debug
+      // D(std::cout << "\n#******************************************************\n";
+      //   std::cout << cstokenSubscribedCount << " subscribed, "
+      //             << cstokenMessageCount << " successful messages received. " << std::endl
+      //             << messages.size() << " messages in this response received. "
+      //             << std::endl;
+      //   std::cout << "******************************************************\n";)
 
-
-      for (const auto &node : resp.value())
-      {
-
-        auto ancestorNode = (index > 1) ? resp.value().at(index - 2) : node;
-        auto prevNode = (index > 0) ? resp.value().at(index - 1) : node;
-        std::cout << "\n------------------------------------------------" << std::endl;
-        std::cout << "Reference " << refmsg << " " << index << std::endl;
-        if (ancestorNode != node)
-        {
-          std::cout << "index " << index << " ancestor node index " << index - 2 << std::endl;
-          std::cout << " value          " << ancestorNode.value << std::endl;
-          std::cout << " data_type      " << ancestorNode.data_type << std::endl;
-          std::cout << " aggregate_size " << ancestorNode.aggregate_size << std::endl;
-          std::cout << " depth          " << ancestorNode.depth << std::endl;
-          std::cout << std::endl;
-        }
-        if (prevNode != node)
-        {
-          std::cout << "index " << index << " previous node index " << index - 1 << std::endl;
-          std::cout << refmsg << " " << index << " previous node" << std::endl;
-          std::cout << " value          " << prevNode.value << std::endl;
-          std::cout << " data_type      " << prevNode.data_type << std::endl;
-          std::cout << " aggregate_size " << prevNode.aggregate_size << std::endl;
-          std::cout << " depth          " << prevNode.depth << std::endl;
-          std::cout << std::endl;
-        }
-        std::cout << "index " << index << " current node" << std::endl;
-        std::cout << " value          " << node.value << std::endl;
-        std::cout << " data_type      " << node.data_type << std::endl;
-        std::cout << " aggregate_size " << node.aggregate_size << std::endl;
-        std::cout << " depth          " << node.depth << std::endl;
-        std::cout << std::endl;
-
-        if (node.data_type == boost::redis::resp3::type::simple_error)
-        {
-          // Handle simple error
-          std::cout << "error " << index << " current node" << std::endl;
-          std::cout << " value         " << node.value << std::endl;
-          std::cout << " data_type     " << node.data_type << std::endl;
-          handleError("Subscribe::receiver error: " + std::string(node.value));
-          continue; // Skip to the next node
-        }
-        if (node.data_type == boost::redis::resp3::type::blob_string ||
-            node.data_type == boost::redis::resp3::type::simple_string)
-        {
-          // Handle simple string
-          auto msg = node.value;
-          std::cout << " simple_string value " << node.value << std::endl;
-          // Try to find field names, certian is the stream names like
-          // cstoken_acquire, etc. Streams names find in channels, then position
-          // into the XID, then into the field key/value list
-          if (msg == "subscribe")
-          {
-            cstokenSubscribedCount++;
-            std::cout << refmsg << " " << index << " resp.value() at node: subscribe" << std::endl;
-          }
-          else if (msg == "message")
-          {
-            cstokenMessageCount++;
-            std::cout << refmsg << " " << index << " resp.value() at node: message" << std::endl;
-          }
-          else if (std::find(channels.begin(), channels.end(), msg) != channels.end())
-          {
-            std::cout << "find channel " << msg << std::endl;
-          }
-          else
-          {
-            if (ancestorNode.value == "message")
-            {
-              // This is a message payload, we can process it.
-              std::stringstream ss;
-              ss << prevNode.value << " message: " << msg;
-              messages.push_back(msg);
-            }
-          }
-
-        }
-        index++;
-      }
-
-      D(std::cout << "\n#******************************************************\n";
-        std::cout << cstokenSubscribedCount << " subscribed, "
-                  << cstokenMessageCount << " successful messages received. " << std::endl
-                  << messages.size() << " messages in this response received. "
-                  << std::endl;
-        std::cout << "******************************************************\n";)
-
-      if (!messages.empty())
-          awakener.broadcast_messages(messages);
-      D(std::cout << "******************************************************\n\n";)
+      // if (!messages.empty())
+      //     awakener.broadcast_messages(messages);
+//      D(std::cout << "******************************************************\n\n";)
 
       resp.value().clear(); // Clear the response value to avoid processing old messages again.
       //redis::consume_one(resp);

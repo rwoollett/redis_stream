@@ -40,40 +40,63 @@ int main(int argc, char **argv)
    sig_set.add(SIGQUIT);
 #endif // defined(SIGQUIT)
 
-  AwakenerWaitable awakener;
   bool m_worker_shall_stop{false}; 
 
-  sig_set.async_wait(
-    [&](const boost::system::error_code &, int)
-    {
-      D(std::cout << "Main ioc is signalled" << std::endl;)
-      m_worker_shall_stop = 1;
-      awakener.stop();
-    });
-    
-  auto main_ioc_thread = std::thread([&main_ioc]()
-    { main_ioc.run(); });
 
   try
   {
+    AwakenerWaitable awakener;
+    sig_set.async_wait(
+      [&](const boost::system::error_code &, int)
+      {
+        D(std::cout << "Main ioc is signalled" << std::endl;)
+        m_worker_shall_stop = 1;
+        //awakener.stop();
+      });
+      
+    auto main_ioc_thread = std::thread([&main_ioc]()
+      { main_ioc.run(); });
+
     RedisSubscribe::Subscribe redisSubscribe(argv[1]);
     redisSubscribe.main_redis(awakener);
     std::cout << "Application loop stated\n";
     while (!m_worker_shall_stop)
     {
-      awakener.wait_broadcast();
-      std::cout << "Application loop awakened, awake count: " << awakener.awake_load() << std::endl;
-
+      WorkItem work = awakener.wait_broadcast();
+      D(std::cout << "Application loop awakened" << std::endl;)
+      
       if (redisSubscribe.isSignalStopped())
       {
         std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
+        continue;
       }
 
-      
+      // Now you actually have the data: 
+      const std::string& stream = work.stream; 
+      const std::string& id = work.id; 
+      const auto& fields = work.fields;
+      // The base class will print the messages.
+      std::cout << "- Broadcasted work item: [STREAM " << stream << "  ID " << id << "]  Fields: ";
+      for (auto& [k, v] : fields)
+          std::cout << "  " << k << " = " << v ;
+      std::cout << std::endl;
+
+      bool ok = true;//process_job(stream, fields);
+
+      if (ok) {
+          redisSubscribe.xack_now(stream, id);
+      }
+
     }
     std::cout << "Exited normally\n";
 
+    main_ioc.stop();
+    if (main_ioc_thread.joinable())
+    {
+      main_ioc_thread.join();
+    }
+    std::cout << "exiting\n";
   }
   catch (const std::exception &e)
   {
@@ -86,11 +109,6 @@ int main(int argc, char **argv)
     result = EXIT_FAILURE;
   }
 
-  main_ioc.stop();
-  if (main_ioc_thread.joinable())
-  {
-    main_ioc_thread.join();
-  }
 
   return result;
 }

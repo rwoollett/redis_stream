@@ -44,20 +44,22 @@ namespace RedisSubscribe
   public:
     // The base class will print the messages.
     // It is able to be overridden in a derived class if you want to handle the messages differently.
-    virtual void broadcast_messages(const std::list<std::string> &broadcast_messages)
+    virtual void broadcast_single(
+        std::string stream_name,
+        std::string message_id,
+        std::unordered_map<std::string, std::string> fields)
     {
-      std::cout << "Awakener::broadcast_messages\n";
-      if (broadcast_messages.empty())
-        return; // If there are no messages, do not update.
-      // The base class will print the messages.
-      std::cout << "- Broadcast subscribed messages\n";
-      for (const auto &msg : broadcast_messages)
-      {
-        std::cout << msg << std::endl;
-      }
+      std::cout << "Awakener::broadcast_singles\n";
+      std::cout << "- Broadcast work item message\n";
+      std::cout << "STREAM: " << stream_name << "\n";
+      std::cout << "  ID: " << message_id << "\n";
+      for (auto& [k, v] : fields)
+          std::cout << "    " << k << " = " << v << "\n";
+
       std::cout << std::endl;
       D(std::cout << "******************************************************#\n\n";)
-    };
+      
+    }
 
     virtual void on_subscribe()
     {
@@ -81,7 +83,7 @@ namespace RedisSubscribe
     int cstokenMessageCount{0};
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_receiver_thread;
-    int m_reconnectCount{0};
+    int m_reconnectCount{0};  
     std::string m_worker_id;
 
   public:
@@ -91,13 +93,15 @@ namespace RedisSubscribe
     /// Deconstructor
     virtual ~Subscribe();
 
-    asio::awaitable<void> receiver(Awakener &awakener);
-    asio::awaitable<void> co_main(Awakener &awakener);
     virtual auto main_redis(Awakener &awakener) -> int;
     virtual bool isSignalStopped() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
-
-  private:
+    void xack_now(const std::string& stream, const std::string& id);
+    
+    private:
+    asio::awaitable<void> receiver(Awakener &awakener);
+    asio::awaitable<void> co_main(Awakener &awakener);
+    asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     void handleError(const std::string &msg);
   };
 

@@ -2,32 +2,50 @@
 #define REDISCLIENT_AWAKENER_WAITABLE_H_
 
 #include "../redisSubscribe/Subscribe.h"
+#include <queue>
+
+struct WorkItem {
+  std::string stream;
+  std::string id;
+  std::unordered_map<std::string, std::string> fields;
+};
+
 
 class AwakenerWaitable : public RedisSubscribe::Awakener
 {
-  std::atomic<int> awake{0};
   std::mutex m_class_lock;
   std::condition_variable m_cond_not_awake;
-  bool shall_stop_awaken = false;
+  bool shall_stop_awaken;
+  std::queue<WorkItem> m_work_queue;
 
 public:
-  int awake_load() { return awake.load(); };
-
-  // The wait_broadcast function is optional if you want to use the Awakener class
-  // to synchronize the main thread with the broadcast messages.
+  AwakenerWaitable():shall_stop_awaken{false},m_work_queue{}, RedisSubscribe::Awakener()
+  {
+  };
+  ~AwakenerWaitable() 
+  {
+    std::cout << "Size quue " << m_work_queue.size() << std::endl;
+    std::cout << "Awakener destr\n";
+  };
 
   // This function will block until there is at least one message to process.
   // It is important to call this function in a loop, as it will block until
   // there is at least one message to process.
   // If you want to stop waiting for messages, call stop() to set shall_stop_awaken to true.
-  void wait_broadcast()
+  WorkItem wait_broadcast()
   {
     std::unique_lock<std::mutex> cl(m_class_lock);
-    m_cond_not_awake.wait(cl, [this]
-                          { return awake.load() > 0 || shall_stop_awaken; });
-    if (awake.load() > 0)
-      awake.fetch_sub(1);
-  };
+    m_cond_not_awake.wait(cl, [this] {
+      return !m_work_queue.empty() || shall_stop_awaken;
+    });
+
+    if (shall_stop_awaken && m_work_queue.empty())
+      return {}; // or some sentinel
+
+    auto item = std::move(m_work_queue.front());
+    m_work_queue.pop();
+    return item;
+  }
 
   // This function will broadcast the messages to the main thread.
   // It will print the messages to the standard output.
@@ -37,25 +55,27 @@ public:
   // If you want to handle the messages differently, you can override this function in a derived class.
   // Plus then it may not be required to use the Awakener class wait_broadcast method to
   // synchronize another thread with the broadcast messages.
-  virtual void broadcast_messages(const std::list<std::string> &broadcast_messages)
+  virtual void broadcast_single(
+      std::string stream_name,
+      std::string message_id,
+      std::unordered_map<std::string, std::string> fields)
   {
-    std::cout << "AwakenerWaitable::broadcast_messages\n";
+    WorkItem work_item;
+    work_item.stream = std::move(stream_name);
+    work_item.id = std::move(message_id);
+    work_item.fields.reserve(fields.size());
+    for (auto& [k, v] : fields)
+        work_item.fields.emplace(k, v);
+
+    std::cout << "AwakenerWaitable::broadcast_single\n";
     {
       std::unique_lock<std::mutex> cl(m_class_lock);
-      if (broadcast_messages.empty())
-        return; // If there are no messages, do not update.
-      // The base class will print the messages.
-      std::cout << "- Broadcast subscribed messages\n";
-      for (const auto &msg : broadcast_messages)
-      {
-        std::cout << msg << std::endl;
-      }
-      std::cout << std::endl;
-      D(std::cout << "******************************************************#\n\n";)
-      awake.fetch_add(1);
+      m_work_queue.push(work_item);
+
     }
     m_cond_not_awake.notify_one();
-  };
+    
+  }
 
   virtual void stop()
   {
