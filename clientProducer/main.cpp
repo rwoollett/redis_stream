@@ -5,8 +5,8 @@
 #include <condition_variable>
 #include <thread>
 #include <iostream>
-#include "../redisPublish/Publish.h" // RedisPublish class
-#include <boost/redis/src.hpp>       // boost redis implementation
+#include "../workqstream/produce/Producer.h" 
+#include <boost/redis/src.hpp>       
 
 int main(int argc, char **argv)
 {

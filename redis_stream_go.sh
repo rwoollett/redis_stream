@@ -11,9 +11,9 @@ pwd
   echo "**Error**: You must have a \"build/clientRedis\" folder with file \"ClientRedis\" built from CMakeLists"
   DIE=1
 }
-(test -f ./build/clientPublisher/ClientPublish) || {
+(test -f ./build/clientProducer/ClientProducer) || {
   echo
-  echo "**Error**: You must have a \"build/clientPublisher\" folder with file \"ClientPublish\" built from CMakeLists"
+  echo "**Error**: You must have a \"build/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
   DIE=1
 }
 
@@ -25,6 +25,10 @@ if test "$DIE" -eq 1; then
 fi
 
 # (docker compose up -d)
+if compgen -G "output_*" > /dev/null; then 
+  echo "Cleared output_*" 
+  rm output_* 
+fi
 
 . ./set_env.sh
 
@@ -37,7 +41,7 @@ while [ $count -le 4 ]; do
 done
 
 sleep .4
-(./build/clientPublisher/ClientPublish > output_publ_$$.log 2>&1 &)
+(./build/clientProducer/ClientProducer > output_publ_$$.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

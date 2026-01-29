@@ -1,7 +1,7 @@
 ﻿#include "io_utility/io_utility.h"
 #include <csignal>
 #include <cstdlib> // For std::getenv
-#include "../redisSubscribe/Subscribe.h"
+#include "../workqstream/consume/Consumer.h"
 #include "AwakenerWaitable.h"
 #include <mutex>
 #include <condition_variable>

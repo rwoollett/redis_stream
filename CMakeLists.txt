@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
-project(NetworkRedis VERSION 1.0
-        DESCRIPTION "Redis on network"
+project(WorkQStream VERSION 1.0
+        DESCRIPTION "Redis stream for work queue produce and consume with ack message"
         LANGUAGES C CXX)
 
 # Set module path for Tester Catch2 cmake modules
@@ -30,8 +30,6 @@ if(${CMAKE_VERSION} VERSION_LESS 3.14)
     include(cmake/add_FetchContent_MakeAvailable.cmake)
 endif()
 
-#add_compile_definitions(LOKI_FUNCTOR_IS_NOT_A_SMALLOBJECT HAVE_SQLITE)
-#add_compile_definitions(LOKI_CLASS_LEVEL_THREADING LOKI_FUNCTOR_IS_NOT_A_SMALLOBJECT HAVE_SQLITE)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     add_compile_definitions(HAVE_ASIO)
 endif()
@@ -46,19 +44,16 @@ set(BOOST_ROOT /usr/local)
 find_package(Boost 1.86 REQUIRED)
 
 message(STATUS "Boost include directory:  ${Boost_INCLUDE_DIR}")
+option(BUILD_TESTS "Build tests and include clientProducer and clientRedis" ON)
 
-add_subdirectory(clientRedis)
+if (BUILD_TESTS)
+  add_subdirectory(clientRedis)
+  add_subdirectory(clientProducer)
+endif()
 
-add_subdirectory(clientPublisher)
+add_subdirectory(workqstream/consume)
 
-add_subdirectory(redisSubscribe)
-
-add_subdirectory(redisPublish)
-
-install(TARGETS ClientRedis EXPORT NetworkRedisTargets RUNTIME DESTINATION bin)
-install(EXPORT NetworkRedisTargets
-        FILE NetworkRedisTargets.cmake
-        DESTINATION bin/cmake/NetworkRedis)
+add_subdirectory(workqstream/produce)
 
 
 

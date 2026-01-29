@@ -1,7 +1,7 @@
 #ifndef REDISCLIENT_AWAKENER_WAITABLE_H_
 #define REDISCLIENT_AWAKENER_WAITABLE_H_
 
-#include "../redisSubscribe/Subscribe.h"
+#include "../workqstream/consume/Consumer.h"
 #include <queue>
 
 struct WorkItem {
