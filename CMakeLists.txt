@@ -44,9 +44,9 @@ set(BOOST_ROOT /usr/local)
 find_package(Boost 1.86 REQUIRED)
 
 message(STATUS "Boost include directory:  ${Boost_INCLUDE_DIR}")
-option(BUILD_TESTS "Build tests and include clientProducer and clientRedis" OFF)
+option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
 
-if (BUILD_TESTS)
+if (BUILD_WORKQ_TESTS)
   add_subdirectory(clientRedis)
   add_subdirectory(clientProducer)
 endif()
