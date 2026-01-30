@@ -24,7 +24,7 @@ if test "$DIE" -eq 1; then
   exit 1
 fi
 
-# (docker compose up -d)
+(docker compose up -d)
 if compgen -G "output_*" > /dev/null; then 
   echo "Cleared output_*" 
   rm output_* 
