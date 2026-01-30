@@ -9,7 +9,7 @@ target_compile_features(WorkQProduce PUBLIC cxx_std_20)
 
 target_include_directories(WorkQProduce
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/..      # <workqstream/...>
+        ${CMAKE_CURRENT_SOURCE_DIR}/../..      # <workqstream/...>
     PRIVATE
         $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
 )
