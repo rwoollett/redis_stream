@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     auto main_ioc_thread = std::thread([&main_ioc]()
       { main_ioc.run(); });
 
-    RedisSubscribe::Subscribe redisSubscribe(argv[1]);
+    WorkQStream::Consumer redisSubscribe(argv[1]);
     redisSubscribe.main_redis(awakener);
     std::cout << "Application loop stated\n";
     while (!m_worker_shall_stop)

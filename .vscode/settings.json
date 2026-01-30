@@ -1,0 +1,13 @@
+{
+  "C_Cpp.default.compilerPath": "/usr/bin/g++-13",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/vscode_build/compile_commands.json",
+  "C_Cpp.default.includePath": [ 
+    "${workspaceFolder}/**" 
+  ],
+  "cmake.buildDirectory": "${workspaceFolder}/vscode_build",  
+
+  "cmake.configureSettings": {
+      "BUILD_WORKQ_TESTS": "ON",
+      "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+  }
+}

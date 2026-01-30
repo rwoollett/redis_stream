@@ -11,7 +11,7 @@ struct WorkItem {
 };
 
 
-class AwakenerWaitable : public RedisSubscribe::Awakener
+class AwakenerWaitable : public WorkQStream::Awakener
 {
   std::mutex m_class_lock;
   std::condition_variable m_cond_not_awake;
@@ -19,7 +19,7 @@ class AwakenerWaitable : public RedisSubscribe::Awakener
   std::queue<WorkItem> m_work_queue;
 
 public:
-  AwakenerWaitable():shall_stop_awaken{false},m_work_queue{}, RedisSubscribe::Awakener()
+  AwakenerWaitable():shall_stop_awaken{false},m_work_queue{}, WorkQStream::Awakener()
   {
   };
   ~AwakenerWaitable() 

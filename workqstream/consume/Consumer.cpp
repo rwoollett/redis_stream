@@ -11,7 +11,7 @@
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/lexical_cast.hpp>
 
-namespace RedisSubscribe
+namespace WorkQStream
 {
 
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
@@ -162,39 +162,39 @@ namespace RedisSubscribe
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
     } catch(const std::exception &e) 
     {
-      std::cerr << "Subscribe::load certiciates " << e.what() << std::endl;
+      std::cerr << "Consumer::load certiciates " << e.what() << std::endl;
     }
   }
 
-  Subscribe::Subscribe(const std::string &workerId) : m_ioc{3},
+  Consumer::Consumer(const std::string &workerId) : m_ioc{3},
                            m_conn{},
                            m_signalStatus{0},
-                           cstokenSubscribedCount{0},
+                           cstokenWorkCount{0},
                            cstokenMessageCount{0},
                            m_isConnected{0},
                            m_worker_id(workerId)
   {
-    D(std::cerr << "Subscribe created\n";)
+    D(std::cerr << "Consumer created\n";)
     if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
       throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
   }
 
-  Subscribe::~Subscribe()
+  Consumer::~Consumer()
   {
     m_ioc.stop();
     if (m_receiver_thread.joinable())
       m_receiver_thread.join();
-    D(std::cerr << "Subscriber destroyed\n";)
+    D(std::cerr << "Consumer destroyed\n";)
   }
 
-  void Subscribe::handleError(const std::string &msg)
+  void Consumer::handleError(const std::string &msg)
   {
-    std::cerr << "Subscribe::handleError: " << msg << std::endl;
+    std::cerr << "Consumer::handleError: " << msg << std::endl;
   };
 
-  asio::awaitable<void> Subscribe::xack(std::string_view stream, std::string_view id)
+  asio::awaitable<void> Consumer::xack(std::string_view stream, std::string_view id)
   {
       redis::request req;
       req.push("XACK", stream, REDIS_SERVICE_GROUP, id);
@@ -202,7 +202,7 @@ namespace RedisSubscribe
       co_await m_conn->async_exec(req, redis::ignore, asio::use_awaitable);
   }
 
-  void Subscribe::xack_now(const std::string& stream, const std::string& id)
+  void Consumer::xack_now(const std::string& stream, const std::string& id)
   {
       asio::co_spawn(
           m_ioc,
@@ -211,7 +211,7 @@ namespace RedisSubscribe
       );
   }
 
-  auto Subscribe::receiver(Awakener &awakener) -> asio::awaitable<void>
+  auto Consumer::receiver(Awakener &awakener) -> asio::awaitable<void>
   {
 
     // get
@@ -254,12 +254,12 @@ namespace RedisSubscribe
     for (boost::system::error_code ec;;)
     {
 
-      D(std::cout << "- Subscribe::receiver blocking until message response " << ec.message() << std::endl;)
+      D(std::cout << "- Consumer::receiver blocking until message response " << ec.message() << std::endl;)
       co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
       if (ec)
       {
-        std::cout << "- Subscribe::receiver ec " << ec.message() << std::endl;
+        std::cout << "- Consumer::receiver ec " << ec.message() << std::endl;
         break; // Connection lost, break so we can reconnect to channels.
       }
       awakener.on_subscribe();
@@ -292,7 +292,7 @@ namespace RedisSubscribe
 
       // Debug
       // D(std::cout << "\n#******************************************************\n";
-      //   std::cout << cstokenSubscribedCount << " subscribed, "
+      //   std::cout << cstokenWorkCount << " subscribed, "
       //             << cstokenMessageCount << " successful messages received. " << std::endl
       //             << messages.size() << " messages in this response received. "
       //             << std::endl;
@@ -307,7 +307,7 @@ namespace RedisSubscribe
     }
   }
 
-  auto Subscribe::co_main(Awakener &awakener) -> asio::awaitable<void>
+  auto Consumer::co_main(Awakener &awakener) -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
     redis::config cfg;
@@ -325,11 +325,11 @@ namespace RedisSubscribe
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
 #endif // defined(SIGQUIT)
-    std::cout << "- Subscribe co_main wait to signal" << std::endl;
+    std::cout << "- Consumer co_main wait to signal" << std::endl;
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
-          D(std::cout << "- Subscribe is signalled" << std::endl;)
+          D(std::cout << "- Consumer is signalled" << std::endl;)
           m_signalStatus = 1;
           awakener.stop();
         });
@@ -361,7 +361,7 @@ namespace RedisSubscribe
       }
       catch (const std::exception &e)
       {
-        std::cerr << "Redis subscribe error: " << e.what() << std::endl;
+        std::cerr << "WorkQStream consumer error: " << e.what() << std::endl;
       }
 
       // Delay before reconnecting
@@ -385,12 +385,12 @@ namespace RedisSubscribe
     awakener.stop();
   }
 
-  auto Subscribe::main_redis(Awakener &awakener) -> int
+  auto Consumer::main_redis(Awakener &awakener) -> int
   {
     try
     {
       // net::io_context ioc;
-      asio::co_spawn(m_ioc.get_executor(), Subscribe::co_main(awakener),
+      asio::co_spawn(m_ioc.get_executor(), Consumer::co_main(awakener),
                      [](std::exception_ptr p)
                      {
                        std::cout << "co_spawn(m_ioc.get_executor() throw\n";
@@ -403,12 +403,12 @@ namespace RedisSubscribe
     }
     catch (std::exception const &e)
     {
-      std::cerr << "subscribe (main_redis) " << e.what() << std::endl;
+      std::cerr << "Consumer (main_redis) " << e.what() << std::endl;
       return 1;
     }
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-} /* namespace RedisSubscribe */
+} /* namespace WorkQStream */
 #endif

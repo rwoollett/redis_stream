@@ -31,19 +31,19 @@ int main(int argc, char **argv)
   try
   {
 
-    RedisPublish::Publish redisPublish;
+    WorkQStream::Producer producer;
     // Before running do a sanity check on connections for Redis.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    std::cout << "Redis publisher connected: " << (redisPublish.isRedisConnected() ? "true" : "false") << std::endl;
+    std::cout << "Redis producer connected: " << (producer.isRedisConnected() ? "true" : "false") << std::endl;
 
-    auto doPublish = [&redisPublish](const std::string &channel,
+    auto doWork = [&producer](const std::string &channel,
                                      const std::vector<std::pair<std::string,std::string>> &fields = {{"postid", "c1234"}})
     {
-      if (!redisPublish.isRedisConnected())
+      if (!producer.isRedisConnected())
       {
         std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
       } else {
-        redisPublish.enqueue_message(channel, fields);
+        producer.enqueue_message(channel, fields);
         std::cout << "Published message to channel: " << channel << " with message: " << std::endl;
         for (auto& [field, value] : fields) {
           std::cout << field << " = " << value << std::endl;
@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     while (!m_worker_shall_stop)
     {
 
-      if (redisPublish.isRedisSignaled())
+      if (producer.isRedisSignaled())
       {
         std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
@@ -68,13 +68,13 @@ int main(int argc, char **argv)
       {
         for (int i = 1; i < argc; ++i)
         {
-          doPublish(argv[i]);
+          doWork(argv[i]);
         }
       }
       else
       {
-        doPublish("csToken_request", {{"postid", "c1234"}, {"postname", "category"}});
-        doPublish("csToken_acquire");
+        doWork("csToken_request", {{"postid", "c1234"}, {"postname", "category"}});
+        doWork("csToken_acquire");
       }
 
       std::this_thread::sleep_for(std::chrono::milliseconds(2500));

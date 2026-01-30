@@ -35,7 +35,7 @@
 namespace asio = boost::asio;
 namespace redis = boost::redis;
 
-namespace RedisSubscribe
+namespace WorkQStream
 {
 
   class Awakener
@@ -74,12 +74,12 @@ namespace RedisSubscribe
     };
   };
 
-  class Subscribe
+  class Consumer
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
     volatile std::sig_atomic_t m_signalStatus;
-    int cstokenSubscribedCount{0};
+    int cstokenWorkCount{0};
     int cstokenMessageCount{0};
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_receiver_thread;
@@ -88,10 +88,10 @@ namespace RedisSubscribe
 
   public:
     /// Constructor
-    Subscribe(const std::string &workerId);
+    Consumer(const std::string &workerId);
 
     /// Deconstructor
-    virtual ~Subscribe();
+    virtual ~Consumer();
 
     virtual auto main_redis(Awakener &awakener) -> int;
     virtual bool isSignalStopped() { return (m_signalStatus == 1); };
@@ -105,6 +105,6 @@ namespace RedisSubscribe
     void handleError(const std::string &msg);
   };
 
-} /* namespace RedisSubscribe */
+} /* namespace WorkQStream */
 #endif // HAVE_ASIO
 #endif /* LIB_REDIS_SUBSCRIBE_H_ */

@@ -39,13 +39,13 @@
 namespace asio = boost::asio;
 namespace redis = boost::redis;
 
-namespace RedisPublish
+namespace WorkQStream
 {
 
   static std::atomic<int> cstokenQueuedCount = 0;
   static std::atomic<int> cstokenMessageCount = 0;
   static std::atomic<int> cstokenSuccessCount = 0;
-  static std::atomic<int> cstokenPublishedCount = 0;
+  static std::atomic<int> cstokenWorkCount = 0;
 
   constexpr int BATCH_SIZE = 10;
   constexpr int CHANNEL_LENGTH = 64;
@@ -60,23 +60,17 @@ namespace RedisPublish
     char value[FIELD_VALUE_LENGTH];
   };
 
-  struct PublishMessage {
+  struct ProduceMessage {
     char channel[CHANNEL_LENGTH];
     FieldValue fields[MAX_FIELDS];
     int field_count;
   };
 
-  // struct PublishMessage
-  // {
-  //   char channel[CHANNEL_LENGTH];
-  //   char message[MESSAGE_LENGTH];
-  // };
-
-  class Publish
+  class Producer
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    boost::lockfree::queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    boost::lockfree::queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
     volatile std::sig_atomic_t m_signalStatus;
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_sender_thread;
@@ -84,10 +78,10 @@ namespace RedisPublish
 
   public:
     /// Constructor
-    Publish();
+    Producer();
 
     /// Deconstructor
-    virtual ~Publish();
+    virtual ~Producer();
 
     bool isRedisSignaled() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
@@ -104,18 +98,18 @@ namespace RedisPublish
 
   class Sender : public std::enable_shared_from_this<Sender>
   {
-    RedisPublish::Publish &m_redisPublisher;
+    WorkQStream::Producer &m_redisProducer;
 
   public:
-    Sender(RedisPublish::Publish &publisher) : m_redisPublisher{publisher} {};
+    Sender(WorkQStream::Producer &publisher) : m_redisProducer{publisher} {};
     ~Sender() {};
 
     void Send(const std::string &channel, const std::vector<std::pair<std::string,std::string>> &message)
     {
-      m_redisPublisher.enqueue_message(channel, message);
+      m_redisProducer.enqueue_message(channel, message);
     };
   };
 
-} /* namespace RedisPublish */
+} /* namespace WorkQStream */
 #endif // HAVE_ASIO
 #endif /* LIB_REDIS_PUBLISH_H_ */

@@ -14,7 +14,7 @@
 #include <boost/redis/response.hpp>
 #include <boost/redis/request.hpp>
 
-namespace RedisPublish
+namespace WorkQStream
 {
 
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
@@ -71,34 +71,34 @@ namespace RedisPublish
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
     } catch(const std::exception &e) 
     {
-      std::cerr << "Publish::load certiciates " << e.what() << std::endl;
+      std::cerr << "Producer::load certiciates " << e.what() << std::endl;
     }
   }
 
-  Publish::Publish() : m_ioc{2},
+  Producer::Producer() : m_ioc{2},
                        m_conn{},
                        msg_queue{},
                        m_signalStatus{0},
                        m_isConnected{0},
                        m_sender_thread{}
   {
-    D(std::cerr << "Publishe created\n";)
+    D(std::cerr << "Produce created\n";)
     if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
       throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_SERVICE_GROUP, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
 
-    asio::co_spawn(m_ioc.get_executor(), Publish::co_main(), asio::detached);
+    asio::co_spawn(m_ioc.get_executor(), Producer::co_main(), asio::detached);
 
 
     m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });
   }
 
-  Publish::~Publish()
+  Producer::~Producer()
   {
-    D(std::cerr << "Redis Publisher  destroying\n";)
-    PublishMessage msg;
+    D(std::cerr << "Redis Producer  destroying\n";)
+    ProduceMessage msg;
     int countMsg = 0;
     while (!msg_queue.empty())
     {
@@ -110,29 +110,29 @@ namespace RedisPublish
       }
       else
       {
-        D(std::cout << "Redis Publisher destructor found msg.\n";)
+        D(std::cout << "Redis Produceer destructor found msg.\n";)
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
       }
     };
     if (m_isConnected == 0)
     {
-      std::cout << "Redis Publisher found not connected to redis: " << countMsg << " messages deleted\n";
+      std::cout << "Redis Produceer found not connected to redis: " << countMsg << " messages deleted\n";
     }
 
     m_ioc.stop();
     if (m_sender_thread.joinable())
       m_sender_thread.join();
-    std::cerr << "Redis Publisher destroyed\n";
+    std::cerr << "Redis Produceer destroyed\n";
   }
 
-  void Publish::enqueue_message(
+  void Producer::enqueue_message(
     const std::string &channel, 
     const std::vector<std::pair<std::string,std::string>> &fields)
   {
     if (m_signalStatus == 1)
       return;
 
-    PublishMessage msg;
+    ProduceMessage msg;
     std::strncpy(msg.channel, channel.c_str(), CHANNEL_LENGTH - 1);
     msg.channel[CHANNEL_LENGTH - 1] = '\0'; // Always null-terminate
 
@@ -153,7 +153,7 @@ namespace RedisPublish
 
   void push_xadd(redis::request& req,
                const std::string& stream,
-               const PublishMessage& m)
+               const ProduceMessage& m)
   {
       std::vector<std::string> args;
       args.reserve(2 + m.field_count * 2);
@@ -169,7 +169,7 @@ namespace RedisPublish
       req.push_range("XADD", args);
   }
 
-  asio::awaitable<void> Publish::process_messages()
+  asio::awaitable<void> Producer::process_messages()
   {
     boost::system::error_code ec;
     redis::request ping_req;
@@ -226,8 +226,8 @@ namespace RedisPublish
     m_reconnectCount = 0; // reset
     for (boost::system::error_code ec;;)
     {
-      std::vector<PublishMessage> batch;
-      PublishMessage msg;
+      std::vector<ProduceMessage> batch;
+      ProduceMessage msg;
       while (msg_queue.pop(msg))
       {
         if (batch.size() < BATCH_SIZE)
@@ -247,7 +247,7 @@ namespace RedisPublish
         std::cout << "Amount batched " << batch.size() << std::endl;
         for (const auto &m : batch)
         {
-          //req.push("PUBLISH", "csToken_request", "my message");
+          //req.push("Produce", "csToken_request", "my message");
           //req.push("XADD", "csToken_request", "*", "postid", "1234", "postname", "test"); // THIS IS GOOD
 
           redis::request req;
@@ -268,16 +268,16 @@ namespace RedisPublish
             co_return; // Connection lost, exit function and try reconnect to redis.
           }
 
-          cstokenPublishedCount++;
+          cstokenWorkCount++;
 
           std::string XID = std::get<0>(resp).value();
           std::cout << "XADD ID: " << XID << std::endl;
 
           std::cout
-                << "Redis publish: " << " batch size: " << batch.size() << ". "
+                << "Redis Produce: " << " batch size: " << batch.size() << ". "
                 << cstokenQueuedCount << " queued, "
                 << cstokenMessageCount << " sent, "
-                << cstokenPublishedCount << " published. "
+                << cstokenWorkCount << " Produceed. "
                 //<< cstokenSuccessCount << " successful subscribes made. "
                 << std::endl;
           
@@ -290,7 +290,7 @@ namespace RedisPublish
     }
   }
 
-  auto Publish::co_main() -> asio::awaitable<void>
+  auto Producer::co_main() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
     redis::config cfg;
@@ -341,12 +341,12 @@ namespace RedisPublish
       }
       catch (const std::exception &e)
       {
-        std::cerr << "Redis publish error: " << e.what() << std::endl;
+        std::cerr << "Redis Produce error: " << e.what() << std::endl;
       }
 
       // Delay before reconnecting
       m_reconnectCount++;
-      std::cout << "Publish process messages exited " << m_reconnectCount << " times, reconnecting in "
+      std::cout << "Producer process messages exited " << m_reconnectCount << " times, reconnecting in "
                 << CONNECTION_RETRY_DELAY << " second..." << std::endl;
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
           .async_wait(asio::use_awaitable);
@@ -365,5 +365,5 @@ namespace RedisPublish
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-} /* namespace RedisSubscribe */
+} /* namespace WorkQStream */
 #endif

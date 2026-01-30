@@ -1,11 +1,13 @@
 ﻿boost_1_86_0
 *.tar.gz
 build
+vscode_build
 scratch.txt
 .env
 /.idea/
 /.vs/
 /.vscode/*.json
+!/.vscode/settings.json
 /nmtoken_runner/*
 seq_*.txt
 scratch.txt
