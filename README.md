@@ -1,7 +1,7 @@
 <h1 align="center">Redis Stream Implementation with Boost 1.86.0</h1>
 
 <br />
-The sample ClientRedis application runs as standalone exe on a machine. 
+The sample Redis application runs as standalone exe on a machine. 
 Requires boost_1_86_0 (maybe 1_85 at minimum for redis boost)
 <br />
 
