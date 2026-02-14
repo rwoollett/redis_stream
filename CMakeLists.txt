@@ -9,30 +9,30 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 # set everything up for c++ 20 features - require coroutines and BOOST_ASIO_HAS_CO_AWAIT
 set(CMAKE_CXX_STANDARD 20) 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# test that filesystem header actually is there and works
-try_compile(HAS_FS "${CMAKE_BINARY_DIR}/temp"
-        "${CMAKE_SOURCE_DIR}/cmake/has_stdfs.cc"
-        CMAKE_FLAGS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON )
+# # test that filesystem header actually is there and works
+# try_compile(HAS_FS "${CMAKE_BINARY_DIR}/temp"
+#         "${CMAKE_SOURCE_DIR}/cmake/has_stdfs.cc"
+#         CMAKE_FLAGS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON )
 
-#message("Supported features = ${CMAKE_CXX_COMPILE_FEATURES}")
-if (HAS_FS)
-    message(STATUS "std::filesystem supported")
-else()
-    message(STATUS "Using std::experimental::filesystem instead of std::filesystem")
-    #set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -lstdc++fs")
-    add_compile_definitions(USE_EXP_FILESYSTEM)
-endif()
+# #message("Supported features = ${CMAKE_CXX_COMPILE_FEATURES}")
+# if (HAS_FS)
+#     message(STATUS "std::filesystem supported")
+# else()
+#     message(STATUS "Using std::experimental::filesystem instead of std::filesystem")
+#     #set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -lstdc++fs")
+#     add_compile_definitions(USE_EXP_FILESYSTEM)
+# endif()
 
 # FetchContent added in CMake 3.11, downloads during the configure step
 include(FetchContent)
 # FetchContent_MakeAvailable was not added until CMake 3.14; use our shim
-if(${CMAKE_VERSION} VERSION_LESS 3.14)
-    include(cmake/add_FetchContent_MakeAvailable.cmake)
-endif()
+# if(${CMAKE_VERSION} VERSION_LESS 3.14)
+#     include(cmake/add_FetchContent_MakeAvailable.cmake)
+# endif()
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    add_compile_definitions(HAVE_ASIO)
-endif()
+#if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+add_compile_definitions(HAVE_ASIO)
+#endif()
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_DEBUG_LIBS OFF)
