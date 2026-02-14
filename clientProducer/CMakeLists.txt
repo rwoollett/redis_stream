@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 # Target NetProcessor
-add_executable(ClientProducer 
-        io_utility/io_utility.h
-        io_utility/io_utility.cpp
-        main.cpp)
+add_executable(ClientProducer  main.cpp)
 
 message(STATUS "Boost include directory:  ${CMAKE_CXX_COMPILE_FEATURES}")
 #target_compile_features(ClientProducer PUBLIC cxx_std_20) use c++20

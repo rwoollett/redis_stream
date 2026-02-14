@@ -1,5 +1,4 @@
-﻿#include "io_utility/io_utility.h"
-#include <csignal>
+﻿#include <csignal>
 #include <cstdlib> // For std::getenv
 #include "../workqstream/consume/Consumer.h"
 #include "AwakenerWaitable.h"

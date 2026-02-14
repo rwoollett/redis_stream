@@ -1,5 +1,4 @@
-﻿#include "io_utility/io_utility.h"
-#include <csignal>
+﻿#include <csignal>
 #include <cstdlib> // For std::getenv
 #include <mutex>
 #include <condition_variable>

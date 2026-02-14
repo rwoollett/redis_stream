@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 # Target NetProcessor
 add_executable(ClientRedis 
-        io_utility/io_utility.h
-        io_utility/io_utility.cpp
         AwakenerWaitable.h
         main.cpp)
 
