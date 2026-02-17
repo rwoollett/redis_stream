@@ -21,7 +21,7 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set(THREADS_PREFER_PTHREAD_FLAG ON)
   find_package(Threads REQUIRED)
   find_package(OpenSSL REQUIRED)
-  target_link_libraries(ClientRedis PRIVATE Threads::Threads ${CMAKE_DL_LIBS} ${CXX_FILESYSTEM_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto WorkQConsume)
+  target_link_libraries(ClientRedis PRIVATE Threads::Threads ${CMAKE_DL_LIBS} ${CXX_FILESYSTEM_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto WorkQCommon WorkQConsume)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
     # using Intel C++
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")

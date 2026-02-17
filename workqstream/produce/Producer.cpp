@@ -1,5 +1,6 @@
 
 #include "Producer.h"
+#include <workqstream/common/Common.h>
 #include <memory>
 #include <fstream>
 #include <sstream>
@@ -20,7 +21,8 @@ namespace WorkQStream
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
-  static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
+  static const char *REDIS_STREAM = std::getenv("REDIS_STREAM");
+  static const char *REDIS_GROUP_CONFIG = std::getenv("REDIS_GROUP_CONFIG");
   static const char *REDIS_SERVICE_GROUP = std::getenv("REDIS_SERVICE_GROUP");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
@@ -48,18 +50,18 @@ namespace WorkQStream
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-  auto verify_certificate(bool, asio::ssl::verify_context&) -> bool
+  auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
     std::cout << "set_verify_callback" << std::endl;
     return true;
   }
   // Helper to load a file into an SSL context
-  void load_certificates(asio::ssl::context& ctx,
-                        const std::string& ca_file,
-                        const std::string& cert_file,
-                        const std::string& key_file)
+  void load_certificates(asio::ssl::context &ctx,
+                         const std::string &ca_file,
+                         const std::string &cert_file,
+                         const std::string &key_file)
   {
-    try 
+    try
     {
       // Load trusted CA
       ctx.load_verify_file(ca_file);
@@ -69,27 +71,28 @@ namespace WorkQStream
 
       // Load private key
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-    } catch(const std::exception &e) 
+    }
+    catch (const std::exception &e)
     {
       std::cerr << "Producer::load certiciates " << e.what() << std::endl;
     }
   }
 
   Producer::Producer() : m_ioc{2},
-                       m_conn{},
-                       msg_queue{},
-                       m_signalStatus{0},
-                       m_isConnected{0},
-                       m_sender_thread{}
+                         m_conn{},
+                         msg_queue{},
+                         m_signalStatus{0},
+                         m_isConnected{0},
+                         m_sender_thread{},
+                         m_group_config(load_group_config())
   {
     D(std::cerr << "Produce created\n";)
-    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+    if (REDIS_GROUP_CONFIG == nullptr || REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_STREAM == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_SERVICE_GROUP, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_STREAM, REDIS_SERVICE_GROUP, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
 
     asio::co_spawn(m_ioc.get_executor(), Producer::co_main(), asio::detached);
-
 
     m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });
@@ -126,8 +129,8 @@ namespace WorkQStream
   }
 
   void Producer::enqueue_message(
-    const std::string &channel, 
-    const std::vector<std::pair<std::string,std::string>> &fields)
+      const std::string &channel,
+      const std::vector<std::pair<std::string, std::string>> &fields)
   {
     if (m_signalStatus == 1)
       return;
@@ -138,9 +141,10 @@ namespace WorkQStream
 
     msg.field_count = fields.size();
     int i = 0;
-    for (const auto& [in_field, in_value] : fields) {
+    for (const auto &[in_field, in_value] : fields)
+    {
       std::cout << in_field << " " << in_value << " sizes " << in_field.size() << ", " << in_value.size() << std::endl;
-      strncpy(msg.fields[i].field, in_field.c_str(), FIELD_NAME_LENGTH - 1); 
+      strncpy(msg.fields[i].field, in_field.c_str(), FIELD_NAME_LENGTH - 1);
       msg.fields[i].field[FIELD_NAME_LENGTH - 1] = '\0';
       strncpy(msg.fields[i].value, in_value.c_str(), FIELD_VALUE_LENGTH - 1);
       msg.fields[i].value[FIELD_VALUE_LENGTH - 1] = '\0';
@@ -151,22 +155,23 @@ namespace WorkQStream
     msg_queue.push(msg);
   }
 
-  void push_xadd(redis::request& req,
-               const std::string& stream,
-               const ProduceMessage& m)
+  void push_xadd(redis::request &req,
+                 const std::string &stream,
+                 const ProduceMessage &m)
   {
-      std::vector<std::string> args;
-      args.reserve(2 + m.field_count * 2);
+    std::vector<std::string> args;
+    args.reserve(2 + m.field_count * 2);
 
-      args.push_back(stream);
-      args.push_back("*");
+    args.push_back(stream);
+    args.push_back("*");
 
-      for (int i = 0; i < m.field_count; ++i) {
-          args.push_back(m.fields[i].field);
-          args.push_back(m.fields[i].value);
-      }
+    for (int i = 0; i < m.field_count; ++i)
+    {
+      args.push_back(m.fields[i].field);
+      args.push_back(m.fields[i].value);
+    }
 
-      req.push_range("XADD", args);
+    req.push_range("XADD", args);
   }
 
   asio::awaitable<void> Producer::process_messages()
@@ -186,41 +191,88 @@ namespace WorkQStream
     {
       D(std::cout << "PING successful\n";)
     }
+
     // ------------------------------------------------------------
     // Ensure the consumer group exists (idempotent)
     // ------------------------------------------------------------
+    for (const auto &[groupName, cfg] : m_group_config)
     {
-      std::list<std::string> channels = splitByComma(REDIS_CHANNEL);
-      // Print the result
-      for (const auto &channel : channels)
+      for (const auto &stream : cfg.streams)
       {
-        std::cout << "REDIS channel stream: " << channel << std::endl;
+
+        std::cout << "Ensuring group '" << groupName
+                  << "' exists on stream '" << stream << "'\n";
+
         redis::request req;
         req.push("XGROUP", "CREATE",
-                channel,                // stream name
-                REDIS_SERVICE_GROUP,    // group name
-                "$",                    // start at new messages
-                "MKSTREAM");            // create stream if missing
+                 stream,
+                 groupName,
+                 "$",
+                 "MKSTREAM");
 
         redis::response<std::string> resp;
 
         boost::system::error_code ec;
         co_await m_conn->async_exec(req, resp,
-            asio::redirect_error(asio::use_awaitable, ec));
+                                    asio::redirect_error(asio::use_awaitable, ec));
 
-        if (ec) {
+        if (ec)
+        {
           std::string msg = ec.message();
-          // Ignore BUSYGROUP (group already exists)
-          if (msg.find("BUSYGROUP") == std::string::npos) {
-              std::cerr << "XGROUP CREATE failed: " << msg << std::endl;
-          } else {
-              std::cout << "XGROUP already exists, continuing\n";
+
+          if (msg.find("BUSYGROUP") == std::string::npos)
+          {
+            std::cerr << "XGROUP CREATE failed: " << msg << "\n";
           }
-        } else {
-            std::cout << "XGROUP prerender_group created successfully\n";
+          else
+          {
+            std::cout << "Group already exists, continuing\n";
+          }
+        }
+        else
+        {
+          std::cout << "Group created successfully\n";
         }
       }
     }
+    // {
+    //   std::list<std::string> streams = splitByComma(REDIS_STREAM);
+    //   // Print the result
+    //   for (const auto &stream : streams)
+    //   {
+    //     std::cout << "REDIS stream: " << stream << std::endl;
+    //     redis::request req;
+    //     req.push("XGROUP", "CREATE",
+    //              stream,              // stream name
+    //              REDIS_SERVICE_GROUP, // group name
+    //              "$",                 // start at new messages
+    //              "MKSTREAM");         // create stream if missing
+
+    //     redis::response<std::string> resp;
+
+    //     boost::system::error_code ec;
+    //     co_await m_conn->async_exec(req, resp,
+    //                                 asio::redirect_error(asio::use_awaitable, ec));
+
+    //     if (ec)
+    //     {
+    //       std::string msg = ec.message();
+    //       // Ignore BUSYGROUP (group already exists)
+    //       if (msg.find("BUSYGROUP") == std::string::npos)
+    //       {
+    //         std::cerr << "XGROUP CREATE failed: " << msg << std::endl;
+    //       }
+    //       else
+    //       {
+    //         std::cout << "XGROUP already exists, continuing\n";
+    //       }
+    //     }
+    //     else
+    //     {
+    //       std::cout << "XGROUP prerender_group created successfully\n";
+    //     }
+    //   }
+    // }
 
     m_isConnected = 1;
     m_reconnectCount = 0; // reset
@@ -247,8 +299,8 @@ namespace WorkQStream
         std::cout << "Amount batched " << batch.size() << std::endl;
         for (const auto &m : batch)
         {
-          //req.push("Produce", "csToken_request", "my message");
-          //req.push("XADD", "csToken_request", "*", "postid", "1234", "postname", "test"); // THIS IS GOOD
+          // req.push("Produce", "csToken_request", "my message");
+          // req.push("XADD", "csToken_request", "*", "postid", "1234", "postname", "test"); // THIS IS GOOD
 
           redis::request req;
           push_xadd(req, m.channel, m);
@@ -274,13 +326,12 @@ namespace WorkQStream
           std::cout << "XADD ID: " << XID << std::endl;
 
           std::cout
-                << "Redis Produce: " << " batch size: " << batch.size() << ". "
-                << cstokenQueuedCount << " queued, "
-                << cstokenMessageCount << " sent, "
-                << cstokenWorkCount << " Produceed. "
-                //<< cstokenSuccessCount << " successful subscribes made. "
-                << std::endl;
-          
+              << "Redis Produce: " << " batch size: " << batch.size() << ". "
+              << cstokenQueuedCount << " queued, "
+              << cstokenMessageCount << " sent, "
+              << cstokenWorkCount << " Produceed. "
+              //<< cstokenSuccessCount << " successful subscribes made. "
+              << std::endl;
         }
       }
       else
@@ -320,20 +371,19 @@ namespace WorkQStream
         asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
         ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
         load_certificates(ssl_ctx,
-                              "tls/ca.crt",    // Your self-signed CA
-                              "tls/redis.crt", // Your client certificate
-                              "tls/redis.key"  // Your private key
-            );
+                          "tls/ca.crt",    // Your self-signed CA
+                          "tls/redis.crt", // Your client certificate
+                          "tls/redis.key"  // Your private key
+        );
         ssl_ctx.set_verify_callback(verify_certificate);
         m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
-
-      } else {
+      }
+      else
+      {
         m_conn = std::make_shared<redis::connection>(ex);
-
       }
 
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
-
 
       try
       {

@@ -17,7 +17,7 @@ namespace WorkQStream
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_SERVICE_GROUP = std::getenv("REDIS_SERVICE_GROUP");
-  static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
+  static const char *REDIS_STREAM = std::getenv("REDIS_STREAM");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
@@ -175,9 +175,9 @@ namespace WorkQStream
                            m_worker_id(workerId)
   {
     D(std::cerr << "Consumer created\n";)
-    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_STREAM == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_STREAM, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
   }
 
@@ -213,18 +213,15 @@ namespace WorkQStream
 
   auto Consumer::receiver(Awakener &awakener) -> asio::awaitable<void>
   {
-
-    // get
-    std::list<std::string> channels = splitByComma(REDIS_CHANNEL);
-    // Print the result
-    for (const auto &channel : channels)
+    std::list<std::string> streams = splitByComma(REDIS_STREAM);
+    for (const auto &stream : streams)
     {
-      std::cout << channel << std::endl;
+      std::cout << stream << std::endl;
     }
 
     redis::request req;
     std::vector<std::string> args;
-    args.reserve(6 + channels.size() * 2);
+    args.reserve(6 + streams.size() * 2);
 
     args.push_back("GROUP");
     args.push_back(REDIS_SERVICE_GROUP);
@@ -234,11 +231,11 @@ namespace WorkQStream
     args.push_back("STREAMS");
 
     size_t index = 0;
-    for (auto it = channels.begin(); it != channels.end(); ++it, ++index) {
+    for (auto it = streams.begin(); it != streams.end(); ++it, ++index) {
         std::cout << "Index " << index << ": " << *it << '\n';
         args.push_back(*it);
     }
-    for (size_t i = 0; i < channels.size(); ++i) {
+    for (size_t i = 0; i < streams.size(); ++i) {
         args.push_back(">");
     }
 

@@ -35,6 +35,7 @@
 #include <thread>
 #include <iostream>
 #include <memory>
+#include <workqstream/common/Common.h>
 
 namespace asio = boost::asio;
 namespace redis = boost::redis;
@@ -75,6 +76,7 @@ namespace WorkQStream
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_sender_thread;
     int m_reconnectCount{0};
+    GroupConfigMap  m_group_config{};
 
   public:
     /// Constructor

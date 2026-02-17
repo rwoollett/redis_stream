@@ -1,19 +1,24 @@
 #!/bin/bash
 # Run this (redisnet_go.sh) for sample redis pub/sub network with publisher and subscriber 
+if [ -z "$1" ]; then
+  echo "Usage: $0 <cmake build dir>"
+  exit 1
+fi
 
+cmakedir=$1
 DIE=0
 srcdir=`dirname $0`
 test -z "$srcdir" && srcdir=.
 pwd
 
-(test -f ./build/clientRedis/ClientRedis) || {
+(test -f ./$cmakedir/clientRedis/ClientRedis) || {
   echo
-  echo "**Error**: You must have a \"build/clientRedis\" folder with file \"ClientRedis\" built from CMakeLists"
+  echo "**Error**: You must have a \"$cmakedir/clientRedis\" folder with file \"ClientRedis\" built from CMakeLists"
   DIE=1
 }
-(test -f ./build/clientProducer/ClientProducer) || {
+(test -f ./$cmakedir/clientProducer/ClientProducer) || {
   echo
-  echo "**Error**: You must have a \"build/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
+  echo "**Error**: You must have a \"$cmakedir/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
   DIE=1
 }
 
@@ -36,12 +41,12 @@ fi
 count=1
 while [ $count -le 4 ]; do
   sleep .4
-  (./build/clientRedis/ClientRedis worker_$$_$count > output_scrb_$$_$count.log 2>&1 &)
+  (./$cmakedir/clientRedis/ClientRedis worker_$$_$count > output_scrb_$$_$count.log 2>&1 &)
   ((count++))
 done
 
 sleep .4
-(./build/clientProducer/ClientProducer > output_publ_$$.log 2>&1 &)
+(./$cmakedir/clientProducer/ClientProducer > output_publ_$$.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

@@ -18,12 +18,12 @@ int main(int argc, char **argv)
   const char *redis_host = std::getenv("REDIS_HOST");
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_service_group = std::getenv("REDIS_SERVICE_GROUP");
-  const char *redis_channel = std::getenv("REDIS_CHANNEL");
+  const char *redis_stream = std::getenv("REDIS_STREAM");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
-  if (!(redis_host && redis_port && redis_password && redis_service_group && redis_channel))
+  if (!(redis_host && redis_port && redis_password && redis_service_group && redis_stream))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_SERVICE_GROUP, REDIS_STREAM, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
   

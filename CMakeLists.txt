@@ -46,14 +46,29 @@ find_package(Boost 1.86 REQUIRED)
 message(STATUS "Boost include directory:  ${Boost_INCLUDE_DIR}")
 option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
 
-if (BUILD_WORKQ_TESTS)
-  add_subdirectory(clientRedis)
-  add_subdirectory(clientProducer)
-endif()
+add_subdirectory(workqstream/common)
 
 add_subdirectory(workqstream/consume)
 
 add_subdirectory(workqstream/produce)
+
+
+if (BUILD_WORKQ_TESTS)
+  include(FetchContent)
+  FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+  )
+  FetchContent_MakeAvailable(nlohmann_json)
+
+  target_link_libraries(WorkQProduce PUBLIC
+    nlohmann_json::nlohmann_json 
+  )
+
+  add_subdirectory(clientRedis)
+  add_subdirectory(clientProducer)
+endif()
 
 
 

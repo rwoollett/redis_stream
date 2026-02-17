@@ -16,6 +16,6 @@ target_include_directories(WorkQProduce
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-target_link_libraries(WorkQConsume PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(WorkQConsume PRIVATE WorkQCommon Threads::Threads ${CMAKE_DL_LIBS})
 
 
