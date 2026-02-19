@@ -13,13 +13,11 @@ int main(int argc, char **argv)
   // Check all environment variable
   const char *redis_host = std::getenv("REDIS_HOST");
   const char *redis_port = std::getenv("REDIS_PORT");
-  const char *redis_stream = std::getenv("REDIS_STREAM");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
-  const char *redis_service_group = std::getenv("REDIS_SERVICE_GROUP");
 
-  if (!(redis_host && redis_port && redis_password && redis_stream && redis_service_group))
+  if (!(redis_host && redis_port && redis_password))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_STREAM, REDIS_SERVICE_GROUP, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
   if (argc > 1)
@@ -72,8 +70,8 @@ int main(int argc, char **argv)
       }
       else
       {
-        doWork("csToken_request", {{"postid", "c1234"}, {"postname", "category"}});
-        doWork("csToken_acquire");
+        doWork("ttt_player_Move", {{"postid", "c1234"}, {"postname", "category"}});
+        doWork("ttt_player_Move");
       }
 
       std::this_thread::sleep_for(std::chrono::milliseconds(2500));

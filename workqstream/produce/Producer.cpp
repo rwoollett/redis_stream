@@ -18,13 +18,11 @@
 namespace WorkQStream
 {
 
+  static const char *REDIS_GROUP_CONFIG = std::getenv("REDIS_GROUP_CONFIG");
+  static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
-  static const char *REDIS_STREAM = std::getenv("REDIS_STREAM");
-  static const char *REDIS_GROUP_CONFIG = std::getenv("REDIS_GROUP_CONFIG");
-  static const char *REDIS_SERVICE_GROUP = std::getenv("REDIS_SERVICE_GROUP");
-  static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3;
 
@@ -84,14 +82,28 @@ namespace WorkQStream
                          m_signalStatus{0},
                          m_isConnected{0},
                          m_sender_thread{},
-                         m_group_config(load_group_config())
+                         m_group_config(load_group_config()),
+                         m_validStreams{}
   {
     D(std::cerr << "Produce created\n";)
-    if (REDIS_GROUP_CONFIG == nullptr || REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_STREAM == nullptr || REDIS_SERVICE_GROUP == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+    if (REDIS_GROUP_CONFIG == nullptr ||
+        REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
+        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_STREAM, REDIS_SERVICE_GROUP, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
 
+    for (const auto &[groupName, cfg] : m_group_config)
+    {
+      for (const auto &s : cfg.streams)
+      {
+        if (s.empty())
+          throw std::runtime_error("Stream name cannot be empty");
+        if (s.find(' ') != std::string::npos)
+          throw std::runtime_error("Stream name cannot contain spaces: " + s);
+        m_validStreams.insert(s);
+      }
+    }
     asio::co_spawn(m_ioc.get_executor(), Producer::co_main(), asio::detached);
 
     m_sender_thread = std::thread([this]()
@@ -134,6 +146,8 @@ namespace WorkQStream
   {
     if (m_signalStatus == 1)
       return;
+
+    validate_stream_or_throw(channel, m_validStreams, "(n/a)");
 
     ProduceMessage msg;
     std::strncpy(msg.channel, channel.c_str(), CHANNEL_LENGTH - 1);
@@ -184,6 +198,12 @@ namespace WorkQStream
     if (ec)
     {
       m_isConnected = 0;
+      std::cout << make_ops_error(
+                       "PING", "(n/a)",
+                       "(n/a)", "(n/a)",
+                       ec.message(),
+                       "Check Redis connectivity and authentication")
+                << std::endl;
       D(std::cout << "PING unsuccessful\n";)
       co_return; // Connection lost, break so we can exit function and try reconnect to redis.
     }
@@ -223,6 +243,14 @@ namespace WorkQStream
           if (msg.find("BUSYGROUP") == std::string::npos)
           {
             std::cerr << "XGROUP CREATE failed: " << msg << "\n";
+            throw std::runtime_error(
+                make_ops_error(
+                    "XGROUP CREATE",
+                    stream,
+                    groupName,
+                    "(n/a)",
+                    msg,
+                    "Verify stream name and Redis ACL permissions"));
           }
           else
           {
@@ -235,44 +263,6 @@ namespace WorkQStream
         }
       }
     }
-    // {
-    //   std::list<std::string> streams = splitByComma(REDIS_STREAM);
-    //   // Print the result
-    //   for (const auto &stream : streams)
-    //   {
-    //     std::cout << "REDIS stream: " << stream << std::endl;
-    //     redis::request req;
-    //     req.push("XGROUP", "CREATE",
-    //              stream,              // stream name
-    //              REDIS_SERVICE_GROUP, // group name
-    //              "$",                 // start at new messages
-    //              "MKSTREAM");         // create stream if missing
-
-    //     redis::response<std::string> resp;
-
-    //     boost::system::error_code ec;
-    //     co_await m_conn->async_exec(req, resp,
-    //                                 asio::redirect_error(asio::use_awaitable, ec));
-
-    //     if (ec)
-    //     {
-    //       std::string msg = ec.message();
-    //       // Ignore BUSYGROUP (group already exists)
-    //       if (msg.find("BUSYGROUP") == std::string::npos)
-    //       {
-    //         std::cerr << "XGROUP CREATE failed: " << msg << std::endl;
-    //       }
-    //       else
-    //       {
-    //         std::cout << "XGROUP already exists, continuing\n";
-    //       }
-    //     }
-    //     else
-    //     {
-    //       std::cout << "XGROUP prerender_group created successfully\n";
-    //     }
-    //   }
-    // }
 
     m_isConnected = 1;
     m_reconnectCount = 0; // reset
@@ -299,9 +289,6 @@ namespace WorkQStream
         std::cout << "Amount batched " << batch.size() << std::endl;
         for (const auto &m : batch)
         {
-          // req.push("Produce", "csToken_request", "my message");
-          // req.push("XADD", "csToken_request", "*", "postid", "1234", "postname", "test"); // THIS IS GOOD
-
           redis::request req;
           push_xadd(req, m.channel, m);
 
@@ -311,12 +298,20 @@ namespace WorkQStream
 
           if (ec)
           {
-            std::cout << "Perform a full reconnect to redis. Reason for error: " << ec.message() << std::endl;
+            std::cout << "Perform a full reconnect to redis. Reason for error: "
+                      << make_ops_error(
+                             "XADD", m.channel,
+                             "(n/a)", "(n/a)",
+                             ec.message(),
+                             "Check Redis connectivity and authentication")
+                      << std::endl;
+
             for (const auto &m : batch)
             {
               msg_queue.push(m);
               cstokenMessageCount--;
             }
+
             co_return; // Connection lost, exit function and try reconnect to redis.
           }
 

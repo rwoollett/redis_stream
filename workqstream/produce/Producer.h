@@ -1,6 +1,5 @@
 
-#ifndef LIB_REDIS_PUBLISH_H_
-#define LIB_REDIS_PUBLISH_H_
+#pragma once
 
 #ifdef NDEBUG
 #define D(x)
@@ -77,6 +76,7 @@ namespace WorkQStream
     std::thread m_sender_thread;
     int m_reconnectCount{0};
     GroupConfigMap  m_group_config{};
+    std::unordered_set<std::string> m_validStreams{};
 
   public:
     /// Constructor
@@ -95,7 +95,6 @@ namespace WorkQStream
   private:
     asio::awaitable<void> co_main();
     asio::awaitable<void> process_messages();
-    // void handleError(const std::string &msg);
   };
 
   class Sender : public std::enable_shared_from_this<Sender>
@@ -114,4 +113,3 @@ namespace WorkQStream
 
 } /* namespace WorkQStream */
 #endif // HAVE_ASIO
-#endif /* LIB_REDIS_PUBLISH_H_ */

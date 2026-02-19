@@ -14,11 +14,6 @@ namespace WorkQStream
         {"streams", cfg.streams}};
   }
 
-  // inline void from_json(nlohmann::json const &j, GroupConfig &cfg)
-  // {
-  //   j.at("streams").get_to(cfg.streams);
-  // }
-
   inline void from_json(nlohmann::json const &j, GroupConfig &cfg)
   {
     if (!j.contains("streams"))
@@ -49,14 +44,6 @@ namespace WorkQStream
     }
   }
 
-  // inline void from_json(nlohmann::json const &j, GroupConfigMap &map)
-  // {
-  //   map.clear();
-  //   for (auto it = j.begin(); it != j.end(); ++it)
-  //   {
-  //     map[it.key()] = it.value().get<GroupConfig>();
-  //   }
-  // }
   inline void from_json(nlohmann::json const &j, GroupConfigMap &map)
   {
     if (!j.is_object())

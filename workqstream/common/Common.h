@@ -36,4 +36,41 @@ namespace WorkQStream
 
     return it->second;
   }
+
+  inline std::string make_ops_error(
+      std::string_view operation,
+      std::string_view stream,
+      std::string_view group,
+      std::string_view worker,
+      std::string_view redisError,
+      std::string_view remediation)
+  {
+    std::ostringstream oss;
+    oss << "[REDIS ERROR]\n"
+        << "Operation: " << operation << "\n"
+        << "Stream:    " << stream << "\n"
+        << "Group:     " << group << "\n"
+        << "Worker:    " << worker << "\n"
+        << "Error:     " << redisError << "\n"
+        << "Action:    " << remediation << "\n";
+    return oss.str();
+  }
+  
+  inline void validate_stream_or_throw(
+      const std::string &stream,
+      const std::unordered_set<std::string> &validStreams,
+      const std::string &workerName)
+  {
+    if (validStreams.find(stream) == validStreams.end())
+    {
+      throw std::runtime_error(
+          make_ops_error(
+              "XADD",
+              stream,
+              "(n/a)",
+              workerName,
+              "Unknown stream",
+              "Ensure the stream is defined in REDIS_GROUP_CONFIG"));
+    }
+  }
 }

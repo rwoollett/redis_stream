@@ -7,7 +7,7 @@
   "cmake.buildDirectory": "${workspaceFolder}/vscode_build",  
 
   "cmake.configureSettings": {
-      "BUILD_WORKQ_TESTS": "OFF",
+      "BUILD_WORKQ_TESTS": "ON",
       "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
   }
 }
