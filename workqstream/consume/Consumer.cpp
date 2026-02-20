@@ -21,7 +21,7 @@ namespace WorkQStream
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
-  static const int CONNECTION_RETRY_DELAY = 3;
+  static const int CONNECTION_RETRY_DELAY = 10;
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
@@ -252,9 +252,9 @@ namespace WorkQStream
     {
       std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
+      // disable health check:
+      cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
     }
-    // disable health check:
-    cfg.health_check_interval = std::chrono::seconds(0); // disable for tls friendly
     std::cout << "Worker id: " << m_worker_id << std::endl;
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
@@ -308,13 +308,15 @@ namespace WorkQStream
       m_isConnected = 0;
       m_reconnectCount++;
       std::cout << "Receiver exited " << m_reconnectCount << " times, reconnecting in " << CONNECTION_RETRY_DELAY << " second..." << std::endl;
+      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
+      std::cout << "Timer done." << std::endl;
+
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
       if (m_reconnectCount >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
     }
     m_signalStatus = 1;
     awakener.stop();

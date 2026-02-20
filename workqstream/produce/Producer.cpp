@@ -24,27 +24,7 @@ namespace WorkQStream
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const int CONNECTION_RETRY_AMOUNT = -1;
-  static const int CONNECTION_RETRY_DELAY = 3;
-
-  std::list<std::string> splitByComma(const char *str)
-  {
-    std::list<std::string> result;
-    if (str == nullptr)
-    {
-      return result; // Return an empty list if the input is null
-    }
-
-    std::stringstream ss(str);
-    std::string token;
-
-    // Split the string by commas
-    while (std::getline(ss, token, ','))
-    {
-      result.push_back(token);
-    }
-
-    return result;
-  }
+  static const int CONNECTION_RETRY_DELAY = 10;
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
@@ -164,7 +144,7 @@ namespace WorkQStream
       i++;
     }
 
-    cstokenQueuedCount++;
+    messageQueuedCount++;
     msg_queue.push(msg);
   }
 
@@ -274,7 +254,7 @@ namespace WorkQStream
         if (batch.size() < BATCH_SIZE)
         {
           batch.push_back(msg);
-          cstokenMessageCount++;
+          messageCount++;
         }
         else
         {
@@ -308,23 +288,22 @@ namespace WorkQStream
             for (const auto &m : batch)
             {
               msg_queue.push(m);
-              cstokenMessageCount--;
+              messageCount--;
             }
 
             co_return; // Connection lost, exit function and try reconnect to redis.
           }
 
-          cstokenWorkCount++;
+          messageSuccessCount++;
 
           std::string XID = std::get<0>(resp).value();
           std::cout << "XADD ID: " << XID << std::endl;
 
           std::cout
               << "Redis Produce: " << " batch size: " << batch.size() << ". "
-              << cstokenQueuedCount << " queued, "
-              << cstokenMessageCount << " sent, "
-              << cstokenWorkCount << " Produceed. "
-              //<< cstokenSuccessCount << " successful subscribes made. "
+              << messageQueuedCount << " queued, "
+              << messageCount << " sent, "
+              << messageSuccessCount << " Produceed. "
               << std::endl;
         }
       }
@@ -346,6 +325,8 @@ namespace WorkQStream
     {
       std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
+      // DONOT disable health check:
+      //cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
     }
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
@@ -392,10 +373,11 @@ namespace WorkQStream
       m_reconnectCount++;
       std::cout << "Producer process messages exited " << m_reconnectCount << " times, reconnecting in "
                 << CONNECTION_RETRY_DELAY << " second..." << std::endl;
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
-          .async_wait(asio::use_awaitable);
 
       m_conn->cancel();
+
+      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
+      std::cout << "Timer done." << std::endl;
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;

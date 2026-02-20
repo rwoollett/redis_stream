@@ -42,10 +42,9 @@ namespace redis = boost::redis;
 namespace WorkQStream
 {
 
-  static std::atomic<int> cstokenQueuedCount = 0;
-  static std::atomic<int> cstokenMessageCount = 0;
-  static std::atomic<int> cstokenSuccessCount = 0;
-  static std::atomic<int> cstokenWorkCount = 0;
+  static std::atomic<int> messageQueuedCount = 0;
+  static std::atomic<int> messageCount = 0;
+  static std::atomic<int> messageSuccessCount = 0;
 
   constexpr int BATCH_SIZE = 10;
   constexpr int CHANNEL_LENGTH = 64;
@@ -55,12 +54,14 @@ namespace WorkQStream
   constexpr int QUEUE_LENGTH = 128;
   constexpr int MAX_FIELDS = 8;
 
-  struct FieldValue {
+  struct FieldValue
+  {
     char field[FIELD_NAME_LENGTH];
     char value[FIELD_VALUE_LENGTH];
   };
 
-  struct ProduceMessage {
+  struct ProduceMessage
+  {
     char channel[CHANNEL_LENGTH];
     FieldValue fields[MAX_FIELDS];
     int field_count;
@@ -75,7 +76,7 @@ namespace WorkQStream
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_sender_thread;
     int m_reconnectCount{0};
-    GroupConfigMap  m_group_config{};
+    GroupConfigMap m_group_config{};
     std::unordered_set<std::string> m_validStreams{};
 
   public:
@@ -89,8 +90,8 @@ namespace WorkQStream
     bool isRedisConnected() { return (m_isConnected == 1); };
 
     void enqueue_message(
-      const std::string &channel, 
-      const std::vector<std::pair<std::string,std::string>> &fields);
+        const std::string &channel,
+        const std::vector<std::pair<std::string, std::string>> &fields);
 
   private:
     asio::awaitable<void> co_main();
@@ -105,7 +106,7 @@ namespace WorkQStream
     Sender(WorkQStream::Producer &publisher) : m_redisProducer{publisher} {};
     ~Sender() {};
 
-    void Send(const std::string &channel, const std::vector<std::pair<std::string,std::string>> &message)
+    void Send(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &message)
     {
       m_redisProducer.enqueue_message(channel, message);
     };
