@@ -10,6 +10,7 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/lexical_cast.hpp>
+#include "Dispatch.h"
 
 namespace WorkQStream
 {
@@ -51,15 +52,15 @@ namespace WorkQStream
   }
 
   Consumer::Consumer(
-      const std::string &workerId) : m_ioc{3},
-                                     m_conn{},
-                                     m_signalStatus{0},
-                                     cstokenWorkCount{0},
-                                     cstokenMessageCount{0},
-                                     m_isConnected{0},
-                                     m_worker_id(workerId),
-                                     m_group_config(load_group_config()),
-                                     m_validStreams{}
+      const std::string &workerId,
+      Awakener &awakener) : m_ioc{3},
+                            m_conn{},
+                            m_signalStatus{0},
+                            cstokenMessageCount{0},
+                            m_isConnected{0},
+                            m_worker_id(workerId),
+                            m_group_config(load_group_config()),
+                            m_validStreams{}
   {
     D(std::cerr << "Consumer created\n";)
     if (REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
@@ -76,6 +77,10 @@ namespace WorkQStream
 
       m_validStreams.insert(s);
     }
+
+    asio::co_spawn(m_ioc.get_executor(), Consumer::co_main(awakener), asio::detached);
+    m_receiver_thread = std::thread([this]()
+                                    { m_ioc.run(); });
   }
 
   Consumer::~Consumer()
@@ -134,7 +139,44 @@ namespace WorkQStream
     }
   }
 
-  auto Consumer::receiver(Awakener &awakener) -> asio::awaitable<bool>
+  void Consumer::read_stream(const redis::generic_response &resp, Awakener &awakener)
+  {
+    auto dispatch_items = parse_dispatch_view(resp);
+
+    for (auto &item : dispatch_items)
+    {
+      // Debug
+      D(std::cout << "- STREAM: " << item.stream << "  ID " << item.id << "  Fields: ";
+        for (auto &[k, v] : item.fields)
+            std::cout
+        << "  " << k << " = " << v;
+        std::cout << std::endl;)
+
+      // Convert to your queue format
+      std::unordered_map<std::string, std::string> field_map;
+      field_map.reserve(item.fields.size());
+
+      for (auto &[k, v] : item.fields)
+        field_map.emplace(std::string(k), std::string(v));
+
+      // Pass to your dispatcher
+      awakener.broadcast_single(
+          std::string(item.stream), // service name
+          std::string(item.id),     // message ID
+          std::move(field_map)      // all fields
+      );
+    }
+
+    // Debug
+    cstokenMessageCount += dispatch_items.size();
+    std::cout << "\n#******************************************************\n";
+    std::cout << cstokenMessageCount << " successful messages received. " << std::endl
+              << dispatch_items.size() << " messages in this response received. "
+              << std::endl;
+    std::cout << "******************************************************\n";
+  }
+
+  auto Consumer::receiver(Awakener &awakener) -> asio::awaitable<void>
   {
     std::cout << "Valid streams\n";
     for (const auto &stream : m_validStreams)
@@ -179,21 +221,21 @@ namespace WorkQStream
       {
         if (ec == asio::error::operation_aborted)
         {
-          std::cout << "- Consumer::receiver canceled (shutdown or reconnect)\n";
-          std::cout << "- Consumer::receiver operation_aborted " << ec.message() << std::endl;
-          std::cout << "- Consumer::receiver operation_aborted " << ec.value() << std::endl;
-          co_return true; //false; // do not reconnect this ec
+          std::cout << "- Consumer::receiver operation_aborted " << ec.message() << " " << ec.value() << std::endl;
+          co_return; // true; // false; // do not reconnect this ec
         }
 
-        std::cout << "Perform a full reconnect to redis. Reason for error: "
-                  << make_ops_error(
-                         "XREADGROUP", "(n/a)",
-                         WORKER_GROUP, m_worker_id,
-                         ec.message(),
-                         "Check Redis connectivity and authentication")
-                  << std::endl;
-        co_return true; // Connection lost, break so we can reconnect to channels.
+        std::cout << "Perform a full reconnect to redis. Reason for error: " << std::endl;
+        throw std::runtime_error(
+            make_ops_error(
+                "XREADGROUP", "(n/a)",
+                WORKER_GROUP, m_worker_id,
+                ec.message(),
+                "Check Redis connectivity and authentication"));
+        //
       }
+
+      read_stream(resp, awakener);
 
       resp.value().clear(); // Clear the response value to avoid processing old messages again.
     }
@@ -211,14 +253,24 @@ namespace WorkQStream
       std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
     }
-    // tweak or disable health check: 
+    // disable health check:
     cfg.health_check_interval = std::chrono::seconds(0); // disable for tls friendly
-    // or e.g.: 
-    //cfg.health_check_interval = std::chrono::seconds(60); // ping every 60s 
-    //cfg.health_check_timeout = std::chrono::seconds(10); // wait 10s for PONG    
     std::cout << "Worker id: " << m_worker_id << std::endl;
 
-    bool should_reconnect = false;
+    boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
+#if defined(SIGQUIT)
+    sig_set.add(SIGQUIT);
+#endif
+    std::cout << "- Consumer co_main signal set" << std::endl;
+    sig_set.async_wait(
+        [&](const boost::system::error_code &, int)
+        {
+          std::cout << "- Consumer is signaled" << std::endl;
+          m_signalStatus = 1;
+          awakener.stop();
+        });
+
+    // bool should_reconnect = false;
     for (;;)
     {
       if (std::string(REDIS_USE_SSL) == "on")
@@ -246,116 +298,27 @@ namespace WorkQStream
       try
       {
         co_await ensure_group_exists();
-        should_reconnect = co_await receiver(awakener);
+        co_await receiver(awakener);
       }
       catch (const std::exception &e)
       {
         std::cerr << "WorkQStream consumer error: " << e.what() << std::endl;
       }
 
-      if (!should_reconnect)
-      {
-        break; // clean shutdown (signal or intentional cancel)
-      }
-
       m_isConnected = 0;
       m_reconnectCount++;
       std::cout << "Receiver exited " << m_reconnectCount << " times, reconnecting in " << CONNECTION_RETRY_DELAY << " second..." << std::endl;
-
+      if (CONNECTION_RETRY_AMOUNT == -1)
+        continue;
+      if (m_reconnectCount >= CONNECTION_RETRY_AMOUNT)
+      {
+        break;
+      }
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
-      //std::cout << "Con cancel\n";
-      //m_conn->cancel();
     }
     m_signalStatus = 1;
     awakener.stop();
   }
-
-  auto Consumer::main_redis(Awakener &awakener) -> int
-  {
-    try
-    {
-      asio::co_spawn(m_ioc.get_executor(), Consumer::co_main(awakener),
-                     [](std::exception_ptr p)
-                     {
-                       if (!p)
-                         return;
-                       try
-                       {
-                         std::rethrow_exception(p);
-                       }
-                       catch (const std::exception &e)
-                       {
-                         std::cerr << "[co_spawn] Coroutine exception: " << e.what() << "\n";
-                       }
-                       catch (...)
-                       {
-                         std::cerr << "[co_spawn] Coroutine threw unknown exception\n";
-                       }
-                     });
-      m_receiver_thread = std::thread([this]()
-                                      { m_ioc.run(); });
-      return 0;
-    }
-    catch (std::exception const &e)
-    {
-      std::cerr << "Consumer (main_redis) " << e.what() << std::endl;
-      return 1;
-    }
-  }
-
-  // auto dispatch_items = parse_dispatch_view(resp);
-
-  // for (auto &item : dispatch_items)
-  // {
-  //   // Debug
-  //   D(std::cout << "- STREAM: " << item.stream << "  ID " << item.id << "  Fields: ";
-  //     for (auto &[k, v] : item.fields)
-  //         std::cout
-  //     << "  " << k << " = " << v;
-  //     std::cout << std::endl;)
-
-  //   // Convert to your queue format
-  //   std::unordered_map<std::string, std::string> field_map;
-  //   field_map.reserve(item.fields.size());
-
-  //   for (auto &[k, v] : item.fields)
-  //     field_map.emplace(std::string(k), std::string(v));
-
-  //   // Pass to your dispatcher
-  //   awakener.broadcast_single(
-  //       std::string(item.stream), // service name
-  //       std::string(item.id),     // message ID
-  //       std::move(field_map)      // all fields
-  //   );
-  // }
-
-  //   // Debug
-  // std::cout << "\n#******************************************************\n";
-  // std::cout << cstokenWorkCount << " subscribed, "
-  //           << cstokenMessageCount << " successful messages received. " << std::endl
-  //           << dispatch_items.size() << " messages in this response received. "
-  //           << std::endl;
-  // std::cout << "******************************************************\n";
-
-  // if (CONNECTION_RETRY_AMOUNT == -1)
-  //   continue;
-  // if (m_reconnectCount >= CONNECTION_RETRY_AMOUNT)
-  // {
-  //   break;
-  // }
-
-  //     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
-  // #if defined(SIGQUIT)
-  //     sig_set.add(SIGQUIT);
-  // #endif // defined(SIGQUIT)
-  //     std::cout << "- Consumer co_main wait to signal" << std::endl;
-  //     sig_set.async_wait(
-  //         [&](const boost::system::error_code &, int)
-  //         {
-  //           std::cout << "- Consumer is signalled" << std::endl;
-  //           m_signalStatus = 1;
-  //           awakener.stop();
-  //         });
 
   // asio::awaitable<void> Consumer::xack(std::string_view stream, std::string_view id)
   // {
@@ -377,123 +340,3 @@ namespace WorkQStream
 
 } /* namespace WorkQStream */
 #endif
-
-// struct DispatchView
-// {
-//   std::string_view stream;
-//   std::string_view id;
-//   std::vector<std::pair<std::string_view, std::string_view>> fields;
-// };
-
-// std::vector<DispatchView>
-// parse_dispatch_view(const redis::generic_response &resp)
-// {
-//   std::vector<DispatchView> out;
-
-//   std::string_view current_stream;
-//   DispatchView current_msg;
-//   std::string_view current_key;
-//   int index = 0;
-
-//   for (auto const &n : resp.value())
-//   {
-
-//     // auto ancestorNode = (index > 1) ? resp.value().at(index - 2) : n;
-//     // auto prevNode = (index > 0) ? resp.value().at(index - 1) : n;
-//     // std::cout << "\n----parse_dispatch_view-----------------------------------" << std::endl;
-//     // std::cout << "Reference " << index << std::endl;
-//     // if (ancestorNode != n)
-//     // {
-//     //   std::cout << "index " << index << " ancestor node index " << index - 2 << std::endl;
-//     //   std::cout << " value          " << ancestorNode.value << std::endl;
-//     //   std::cout << " data_type      " << ancestorNode.data_type << std::endl;
-//     //   std::cout << " aggregate_size " << ancestorNode.aggregate_size << std::endl;
-//     //   std::cout << " depth          " << ancestorNode.depth << std::endl;
-//     //   std::cout << std::endl;
-//     // }
-//     // if (prevNode != n)
-//     // {
-//     //   std::cout << "index " << index << " previous node index " << index - 1 << std::endl;
-//     //   std::cout << " value          " << prevNode.value << std::endl;
-//     //   std::cout << " data_type      " << prevNode.data_type << std::endl;
-//     //   std::cout << " aggregate_size " << prevNode.aggregate_size << std::endl;
-//     //   std::cout << " depth          " << prevNode.depth << std::endl;
-//     //   std::cout << std::endl;
-//     // }
-//     // std::cout << "index " << index << " current node" << std::endl;
-//     // std::cout << " value          " << n.value << std::endl;
-//     // std::cout << " data_type      " << n.data_type << std::endl;
-//     // std::cout << " aggregate_size " << n.aggregate_size << std::endl;
-//     // std::cout << " depth          " << n.depth << std::endl;
-//     // std::cout << std::endl;
-
-//     // STREAM NAME
-//     if (n.depth == 1 &&
-//         n.data_type == boost::redis::resp3::type::blob_string)
-//     {
-//       current_stream = n.value;
-//       continue;
-//     }
-
-//     // MESSAGE ID
-//     if (n.depth == 3 &&
-//         n.data_type == boost::redis::resp3::type::blob_string)
-//     {
-//       // If we already have a message pending, push it
-//       if (!current_msg.id.empty())
-//       {
-//         out.push_back(std::move(current_msg));
-//         current_msg = DispatchView{};
-//       }
-
-//       current_msg.stream = current_stream;
-//       current_msg.id = n.value;
-//       continue;
-//     }
-
-//     // FIELD KEY/VALUE
-//     if (n.depth == 4 &&
-//         n.data_type == boost::redis::resp3::type::blob_string)
-//     {
-//       if (current_key.empty())
-//       {
-//         current_key = n.value;
-//       }
-//       else
-//       {
-//         current_msg.fields.emplace_back(current_key, n.value);
-//         current_key = {};
-//       }
-//       continue;
-//     }
-//     index++;
-//   }
-
-//   // Push last message
-//   if (!current_msg.id.empty())
-//   {
-//     out.push_back(std::move(current_msg));
-//   }
-
-//   return out;
-// }
-
-// std::list<std::string> splitByComma(const char *str)
-// {
-//   std::list<std::string> result;
-//   if (str == nullptr)
-//   {
-//     return result; // Return an empty list if the input is null
-//   }
-
-//   std::stringstream ss(str);
-//   std::string token;
-
-//   // Split the string by commas
-//   while (std::getline(ss, token, ','))
-//   {
-//     result.push_back(token);
-//   }
-
-//   return result;
-// }

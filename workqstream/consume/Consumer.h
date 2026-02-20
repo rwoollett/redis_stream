@@ -77,7 +77,6 @@ namespace WorkQStream
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
     volatile std::sig_atomic_t m_signalStatus;
-    int cstokenWorkCount{0};
     int cstokenMessageCount{0};
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_receiver_thread;
@@ -88,21 +87,21 @@ namespace WorkQStream
 
   public:
     /// Constructor
-    Consumer(const std::string &workerId);
+    Consumer(const std::string &workerId, Awakener &awakener);
 
     /// Deconstructor
     virtual ~Consumer();
 
-    virtual auto main_redis(Awakener &awakener) -> int;
     virtual bool isSignalStopped() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
     //void xack_now(const std::string &stream, const std::string &id);
 
   private:
     asio::awaitable<void> ensure_group_exists();
-    asio::awaitable<bool> receiver(Awakener &awakener);
+    asio::awaitable<void> receiver(Awakener &awakener);
     asio::awaitable<void> co_main(Awakener &awakener);
     //asio::awaitable<void> xack(std::string_view stream, std::string_view id);
+    void read_stream(const redis::generic_response &resp, Awakener &awakener);
     void handleError(const std::string &msg);
   };
 

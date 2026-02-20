@@ -53,8 +53,8 @@ int main(int argc, char **argv)
   {
     AwakenerWaitable awakener;
 
-    WorkQStream::Consumer redisSubscribe(argv[1]);
-    redisSubscribe.main_redis(awakener);
+    WorkQStream::Consumer redisSubscribe(argv[1], awakener);
+//    redisSubscribe.main_redis(awakener);
     std::cout << "Application loop stated\n";
     while (!m_worker_shall_stop)
     {
