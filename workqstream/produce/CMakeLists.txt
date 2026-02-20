@@ -14,8 +14,6 @@ target_include_directories(WorkQProduce
         $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
 )
 
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
-target_link_libraries(WorkQConsume PRIVATE WorkQCommon Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(WorkQProduce PRIVATE WorkQCommon)
 
 

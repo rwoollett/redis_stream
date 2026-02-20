@@ -24,7 +24,7 @@ public:
   };
   ~AwakenerWaitable() 
   {
-    std::cout << "Size quue " << m_work_queue.size() << std::endl;
+    std::cout << "Size queue " << m_work_queue.size() << std::endl;
     std::cout << "Awakener destr\n";
   };
 

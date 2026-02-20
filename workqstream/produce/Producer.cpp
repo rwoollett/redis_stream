@@ -112,7 +112,6 @@ namespace WorkQStream
 
   Producer::~Producer()
   {
-    D(std::cerr << "Redis Producer  destroying\n";)
     ProduceMessage msg;
     int countMsg = 0;
     while (!msg_queue.empty())
@@ -137,7 +136,7 @@ namespace WorkQStream
     m_ioc.stop();
     if (m_sender_thread.joinable())
       m_sender_thread.join();
-    std::cerr << "Redis Produceer destroyed\n";
+    std::cerr << "Redis Producer destroyed\n";
   }
 
   void Producer::enqueue_message(

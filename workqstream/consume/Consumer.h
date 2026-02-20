@@ -31,6 +31,7 @@
 #include <boost/asio/io_context.hpp>
 #include <thread>
 #include <iostream>
+#include <workqstream/common/Common.h>
 
 namespace asio = boost::asio;
 namespace redis = boost::redis;
@@ -53,24 +54,21 @@ namespace WorkQStream
       std::cout << "- Broadcast work item message\n";
       std::cout << "STREAM: " << stream_name << "\n";
       std::cout << "  ID: " << message_id << "\n";
-      for (auto& [k, v] : fields)
-          std::cout << "    " << k << " = " << v << "\n";
+      for (auto &[k, v] : fields)
+        std::cout << "    " << k << " = " << v << "\n";
 
       std::cout << std::endl;
       D(std::cout << "******************************************************#\n\n";)
-      
     }
 
-    virtual void on_subscribe()
-    {
-      std::cout << "Awakener::on_subscribe\n";
-      // do nothing in base class
+    virtual void on_subscribe() {
+      // std::cout << "Awakener::on_subscribe\n";
+      //  do nothing in base class
     };
 
-    virtual void stop()
-    {
-      std::cout << "Awakener::stop\n";
-      // do nothing in base class
+    virtual void stop() {
+      // std::cout << "Awakener::stop\n";
+      //  do nothing in base class
     };
   };
 
@@ -83,8 +81,10 @@ namespace WorkQStream
     int cstokenMessageCount{0};
     volatile std::sig_atomic_t m_isConnected;
     std::thread m_receiver_thread;
-    int m_reconnectCount{0};  
+    int m_reconnectCount{0};
     std::string m_worker_id;
+    GroupConfigMap m_group_config{};
+    std::unordered_set<std::string> m_validStreams{};
 
   public:
     /// Constructor
@@ -96,12 +96,13 @@ namespace WorkQStream
     virtual auto main_redis(Awakener &awakener) -> int;
     virtual bool isSignalStopped() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
-    void xack_now(const std::string& stream, const std::string& id);
-    
-    private:
-    asio::awaitable<void> receiver(Awakener &awakener);
+    //void xack_now(const std::string &stream, const std::string &id);
+
+  private:
+    asio::awaitable<void> ensure_group_exists();
+    asio::awaitable<bool> receiver(Awakener &awakener);
     asio::awaitable<void> co_main(Awakener &awakener);
-    asio::awaitable<void> xack(std::string_view stream, std::string_view id);
+    //asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     void handleError(const std::string &msg);
   };
 
