@@ -98,7 +98,6 @@ namespace WorkQStream
     {
       if (m_isConnected == 0)
       {
-        // Exited because of no redis connection so empty out msg_queue
         msg_queue.pop(msg);
         countMsg++;
       }
@@ -325,8 +324,7 @@ namespace WorkQStream
     {
       std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
-      // DONOT disable health check:
-      //cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
+      // DONOT disable health check
     }
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);

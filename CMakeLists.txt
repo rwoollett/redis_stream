@@ -8,7 +8,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 add_compile_definitions(HAVE_ASIO)
-#endif()
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_DEBUG_LIBS OFF)
@@ -19,15 +18,11 @@ set(Boost_NO_BOOST_CMAKE ON)
 set(BOOST_ROOT /usr/local)
 find_package(Boost 1.86 REQUIRED)
 
-#message(STATUS " Boost include directory:  ${Boost_INCLUDE_DIR}")
 option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
 
 add_subdirectory(workqstream/common)
-
 add_subdirectory(workqstream/consume)
-
 add_subdirectory(workqstream/produce)
-
 
 if (BUILD_WORKQ_TESTS)
   include(FetchContent)

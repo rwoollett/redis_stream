@@ -61,7 +61,7 @@ int main(int argc, char **argv)
       WorkItem work = awakener.wait_broadcast();
       std::cout << "Application loop awakened" << std::endl;
 
-      if (redisSubscribe.isSignalStopped())
+      if (redisSubscribe.is_signal_stopped())
       {
         std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;

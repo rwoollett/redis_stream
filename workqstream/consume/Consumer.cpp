@@ -10,7 +10,7 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/lexical_cast.hpp>
-#include "Dispatch.h"
+#include "ParseRedisResp.h"
 
 namespace WorkQStream
 {
@@ -39,7 +39,6 @@ namespace WorkQStream
 
   auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
-    //std::cout << "set_verify_callback" << std::endl;
     return true;
   }
   // Helper to load a file into an SSL context
@@ -68,12 +67,12 @@ namespace WorkQStream
       Awakener &awakener) : m_ioc{3},
                             m_conn_read{},
                             m_conn_write{},
-                            m_signalStatus{0},
-                            cstokenMessageCount{0},
-                            m_isConnected{0},
+                            m_signal_status{0},
+                            m_cstoken_message_count{0},
+                            m_is_connected{0},
                             m_worker_id(workerId),
                             m_group_config(load_group_config()),
-                            m_validStreams{}
+                            m_valid_streams{}
   {
     D(std::cerr << "Consumer created\n";)
     if (REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
@@ -88,7 +87,7 @@ namespace WorkQStream
       if (s.find(' ') != std::string::npos)
         throw std::runtime_error("Stream name cannot contain spaces: " + s);
 
-      m_validStreams.insert(s);
+      m_valid_streams.insert(s);
     }
 
     asio::co_spawn(m_ioc.get_executor(), Consumer::co_main(awakener), asio::detached);
@@ -104,14 +103,9 @@ namespace WorkQStream
       m_receiver_thread.join();
   }
 
-  void Consumer::handleError(const std::string &msg)
-  {
-    std::cerr << "Consumer::handleError: " << msg << std::endl;
-  };
-
   asio::awaitable<void> Consumer::ensure_group_exists()
   {
-    for (const auto &stream : m_validStreams)
+    for (const auto &stream : m_valid_streams)
     {
       std::cout << "Ensuring group '" << WORKER_GROUP << "' exists on stream '" << stream << "'\n";
       redis::request req;
@@ -173,9 +167,9 @@ namespace WorkQStream
     }
 
     // Debug
-    cstokenMessageCount += dispatch_items.size();
+    m_cstoken_message_count += dispatch_items.size();
     std::cout << "\n******************************************************\n";
-    std::cout << cstokenMessageCount << " successful messages received. " << std::endl
+    std::cout << m_cstoken_message_count << " successful messages received. " << std::endl
               << dispatch_items.size() << " messages in this response received. "
               << std::endl;
     std::cout << "******************************************************\n";
@@ -183,15 +177,9 @@ namespace WorkQStream
 
   auto Consumer::receiver(Awakener &awakener) -> asio::awaitable<void>
   {
-    // std::cout << "Valid streams\n";
-    // for (const auto &stream : m_validStreams)
-    // {
-    //   std::cout << stream << std::endl;
-    // }
-
     redis::request req;
     std::vector<std::string> args;
-    args.reserve(6 + m_validStreams.size() * 2);
+    args.reserve(6 + m_valid_streams.size() * 2);
 
     args.push_back("GROUP");
     args.push_back(WORKER_GROUP);
@@ -201,12 +189,11 @@ namespace WorkQStream
     args.push_back("STREAMS");
 
     size_t index = 0;
-    for (auto it = m_validStreams.begin(); it != m_validStreams.end(); ++it, ++index)
+    for (auto it = m_valid_streams.begin(); it != m_valid_streams.end(); ++it, ++index)
     {
-      //std::cout << "Index " << index << ": " << *it << '\n';
       args.push_back(*it);
     }
-    for (size_t i = 0; i < m_validStreams.size(); ++i)
+    for (size_t i = 0; i < m_valid_streams.size(); ++i)
     {
       args.push_back(">");
     }
@@ -215,8 +202,8 @@ namespace WorkQStream
     redis::generic_response resp;
 
     req.get_config().cancel_if_not_connected = false;
-    m_isConnected = 1;
-    m_reconnectCount = 0; // reset
+    m_is_connected = 1;
+    m_reconnect_count = 0; // reset
 
     for (boost::system::error_code ec;;)
     {
@@ -271,7 +258,7 @@ namespace WorkQStream
         [&](const boost::system::error_code &, int)
         {
           D(std::cout << "- Consumer is signaled" << std::endl;)
-          m_signalStatus = 1;
+          m_signal_status = 1;
           awakener.stop();
         });
 
@@ -321,7 +308,7 @@ namespace WorkQStream
           trim_stream("ttt_player_Move"),
           asio::detached);
 
-      //std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;
+      D(std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;)
       try
       {
         co_await ensure_group_exists();
@@ -332,20 +319,20 @@ namespace WorkQStream
         std::cerr << "WorkQStream consumer error: " << e.what() << std::endl;
       }
 
-      m_isConnected = 0;
-      m_reconnectCount++;
-      std::cout << "Receiver exited " << m_reconnectCount << " times, reconnecting in " << CONNECTION_RETRY_DELAY << " second..." << std::endl;
+      m_is_connected = 0;
+      m_reconnect_count++;
+      std::cout << "Receiver exited " << m_reconnect_count << " times, reconnecting in " << CONNECTION_RETRY_DELAY << " second..." << std::endl;
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
       std::cout << "Timer done." << std::endl;
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
-      if (m_reconnectCount >= CONNECTION_RETRY_AMOUNT)
+      if (m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
     }
-    m_signalStatus = 1;
+    m_signal_status = 1;
     awakener.stop();
   }
 

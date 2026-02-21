@@ -2,8 +2,8 @@
 add_library(WorkQConsume
     Consumer.cpp
     Consumer.h
-    Dispatch.cpp
-    Dispatch.h
+    ParseRedisResp.cpp
+    ParseRedisResp.h
 )
 
 add_library(WorkQStream::WorkQConsume ALIAS WorkQConsume)

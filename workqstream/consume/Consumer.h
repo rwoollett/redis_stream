@@ -44,7 +44,6 @@ namespace WorkQStream
 
   public:
     // The base class will print the messages.
-    // It is able to be overridden in a derived class if you want to handle the messages differently.
     virtual void broadcast_single(
         std::string stream_name,
         std::string message_id,
@@ -62,12 +61,10 @@ namespace WorkQStream
     }
 
     virtual void on_subscribe() {
-      // std::cout << "Awakener::on_subscribe\n";
       //  do nothing in base class
     };
 
     virtual void stop() {
-      // std::cout << "Awakener::stop\n";
       //  do nothing in base class
     };
   };
@@ -77,14 +74,14 @@ namespace WorkQStream
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn_read;
     std::shared_ptr<redis::connection> m_conn_write;
-    volatile std::sig_atomic_t m_signalStatus;
-    int cstokenMessageCount{0};
-    volatile std::sig_atomic_t m_isConnected;
     std::thread m_receiver_thread;
-    int m_reconnectCount{0};
+    volatile std::sig_atomic_t m_signal_status;
+    volatile std::sig_atomic_t m_is_connected;
+    int m_cstoken_message_count{0};
+    int m_reconnect_count{0};
     std::string m_worker_id;
     GroupConfigMap m_group_config{};
-    std::unordered_set<std::string> m_validStreams{};
+    std::unordered_set<std::string> m_valid_streams{};
 
   public:
     /// Constructor
@@ -93,8 +90,8 @@ namespace WorkQStream
     /// Deconstructor
     virtual ~Consumer();
 
-    virtual bool isSignalStopped() { return (m_signalStatus == 1); };
-    bool isRedisConnected() { return (m_isConnected == 1); };
+    virtual bool is_signal_stopped() { return (m_signal_status == 1); };
+    bool is_redis_connected() { return (m_is_connected == 1); };
     void xack_now(const std::string &stream, const std::string &id);
     void send_to_dlq_now(const std::string &stream, const std::string &id,
                          const std::unordered_map<std::string, std::string> &fields);
@@ -112,7 +109,7 @@ namespace WorkQStream
     asio::awaitable<void> trim_stream(std::string stream);
                                         
     void read_stream(const redis::generic_response &resp, Awakener &awakener);
-    void handleError(const std::string &msg);
+
   };
 
 } /* namespace WorkQStream */
