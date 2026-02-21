@@ -285,27 +285,27 @@ namespace WorkQStream
       std::cerr << "WorkQStream consumer co_main: run connections" << std::endl;
       m_conn_read->async_run(
           cfg,
-          redis::logger{redis::logger::level::info},
+          redis::logger{redis::logger::level::err},
           [self = m_conn_read](boost::system::error_code ec)
           {
             std::cerr << "[m_conn_read async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
           });
       m_conn_write->async_run(
           cfg,
-          redis::logger{redis::logger::level::info},
+          redis::logger{redis::logger::level::err},
           [self = m_conn_write](boost::system::error_code ec)
           {
             std::cerr << "[m_conn_write async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
           });
 
-      // asio::co_spawn(
-      //     m_ioc,
-      //     recover_pending("ttt_player_Move", awakener),
-      //     asio::detached);
-      // asio::co_spawn(
-      //     m_ioc,
-      //     trim_stream("ttt_player_Move"),
-      //     asio::detached);
+      asio::co_spawn(
+          m_ioc,
+          recover_pending("ttt_player_Move", awakener),
+          asio::detached);
+      asio::co_spawn(
+          m_ioc,
+          trim_stream("ttt_player_Move"),
+          asio::detached);
 
       co_await asio::steady_timer(co_await asio::this_coro::executor, std::chrono::milliseconds(500)).async_wait(asio::use_awaitable);
 
