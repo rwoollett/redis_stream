@@ -24,8 +24,7 @@ public:
   };
   ~AwakenerWaitable() 
   {
-    std::cout << "Size queue " << m_work_queue.size() << std::endl;
-    std::cout << "Awakener destr\n";
+    std::cout << "Size awakener work queue " << m_work_queue.size() << std::endl;
   };
 
   // This function will block until there is at least one message to process.

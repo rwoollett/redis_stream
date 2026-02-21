@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <iomanip>
 
 #ifdef HAVE_ASIO
 
@@ -30,7 +31,6 @@ namespace WorkQStream
 
   auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
-    std::cout << "set_verify_callback" << std::endl;
     return true;
   }
   // Helper to load a file into an SSL context
@@ -133,7 +133,7 @@ namespace WorkQStream
     int i = 0;
     for (const auto &[in_field, in_value] : fields)
     {
-      std::cout << in_field << " " << in_value << " sizes " << in_field.size() << ", " << in_value.size() << std::endl;
+      D(std::cout << in_field << " " << in_value << " sizes " << in_field.size() << ", " << in_value.size() << std::endl;)
       strncpy(msg.fields[i].field, in_field.c_str(), FIELD_NAME_LENGTH - 1);
       msg.fields[i].field[FIELD_NAME_LENGTH - 1] = '\0';
       strncpy(msg.fields[i].value, in_value.c_str(), FIELD_VALUE_LENGTH - 1);
@@ -194,9 +194,7 @@ namespace WorkQStream
       for (const auto &stream : cfg.streams)
       {
 
-        std::cout << "Ensuring group '" << groupName
-                  << "' exists on stream '" << stream << "'\n";
-
+        std::cout << "Ensuring group '" << groupName << "' exists on stream '" << stream << "'\n";
         redis::request req;
         req.push("XGROUP", "CREATE",
                  stream,
@@ -260,7 +258,7 @@ namespace WorkQStream
 
       if (!batch.empty())
       {
-        std::cout << "Amount batched " << batch.size() << std::endl;
+        D(std::cout << "Amount batched " << batch.size() << std::endl;)
         for (const auto &m : batch)
         {
           redis::request req;
@@ -292,13 +290,13 @@ namespace WorkQStream
           MESSAGE_SUCCESS_COUNT++;
 
           std::string XID = std::get<0>(resp).value();
-          std::cout << "XADD ID: " << XID << std::endl;
-
-          std::cout
+          D(std::cout
               << "Redis Produce: " << " batch size: " << batch.size() << ". "
               << MESSAGE_QUEUED_COUNT << " queued, "
-              << MESSAGE_COUNT << " sent, "
-              << MESSAGE_SUCCESS_COUNT << " Produceed. "
+              << MESSAGE_COUNT << " sent." << std::endl;)
+          std::cout << std::right << std::setw(6)
+              << MESSAGE_SUCCESS_COUNT << " produced. "
+              << "XADD ID: " << XID << " "
               << std::endl;
         }
       }
@@ -371,7 +369,7 @@ namespace WorkQStream
       m_conn->cancel();
 
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
-      std::cout << "Timer done." << std::endl;
+      D(std::cout << "Timer done." << std::endl;)
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;

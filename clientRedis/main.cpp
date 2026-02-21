@@ -54,12 +54,11 @@ int main(int argc, char **argv)
     AwakenerWaitable awakener;
 
     WorkQStream::Consumer redisSubscribe(argv[1], awakener);
-//    redisSubscribe.main_redis(awakener);
     std::cout << "Application loop stated\n";
     while (!m_worker_shall_stop)
     {
       WorkItem work = awakener.wait_broadcast();
-      std::cout << "Application loop awakened" << std::endl;
+      D(std::cout << "Application loop awakened" << std::endl;)
 
       if (redisSubscribe.is_signal_stopped())
       {
@@ -73,16 +72,16 @@ int main(int argc, char **argv)
       const std::string &id = work.id;
       const auto &fields = work.fields;
       // The base class will print the messages.
-      std::cout << "- Broadcasted work item: [STREAM " << stream << "  ID " << id << "]  Fields: ";
+      D(std::cout << "- Consumer work item: [STREAM " << stream << "      ID " << id << "]  Fields: ";
       for (auto &[k, v] : fields)
         std::cout << "  " << k << " = " << v;
-      std::cout << std::endl;
+      std::cout << std::endl;)
 
       bool ok = false; // process_job(stream, fields);
 
       // if (ok)
       // {
-      //   redisSubscribe.xack_now(stream, id);
+      redisSubscribe.xack_now(stream, id);
       // } else {
       //   redisSubscribe.send_to_dlq_now(stream, id, fields);
       // }

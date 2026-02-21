@@ -41,11 +41,11 @@ int main(int argc, char **argv)
         std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
       } else {
         producer.enqueue_message(channel, fields);
-        std::cout << "Published message to channel: " << channel << " with message: " << std::endl;
+        D(std::cout << "Published message to channel: " << channel << " with message (";
         for (auto& [field, value] : fields) {
-          std::cout << field << " = " << value << std::endl;
+          std::cout << field << " = " << value << " ";
         }
-        std::cout << std::endl;
+        std::cout << ")" << std::endl;)
       }
     };
 
