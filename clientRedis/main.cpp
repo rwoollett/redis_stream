@@ -78,12 +78,14 @@ int main(int argc, char **argv)
         std::cout << "  " << k << " = " << v;
       std::cout << std::endl;
 
-      bool ok = true; // process_job(stream, fields);
+      bool ok = false; // process_job(stream, fields);
 
-      // if (ok)
-      // {
-      //   redisSubscribe.xack_now(stream, id);
-      // }
+      if (ok)
+      {
+        redisSubscribe.xack_now(stream, id);
+      } else {
+        redisSubscribe.send_to_dlq_now(stream, id, fields);
+      }
     }
     std::cout << "Exited normally\n";
   }

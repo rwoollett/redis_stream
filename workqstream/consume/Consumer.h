@@ -75,7 +75,8 @@ namespace WorkQStream
   class Consumer
   {
     asio::io_context m_ioc;
-    std::shared_ptr<redis::connection> m_conn;
+    std::shared_ptr<redis::connection> m_conn_read;
+    std::shared_ptr<redis::connection> m_conn_write;
     volatile std::sig_atomic_t m_signalStatus;
     int cstokenMessageCount{0};
     volatile std::sig_atomic_t m_isConnected;
@@ -94,13 +95,17 @@ namespace WorkQStream
 
     virtual bool isSignalStopped() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
-    //void xack_now(const std::string &stream, const std::string &id);
+    void xack_now(const std::string &stream, const std::string &id);
+    void send_to_dlq_now(const std::string &stream, const std::string &id,
+                         const std::unordered_map<std::string, std::string> &fields);
 
   private:
     asio::awaitable<void> ensure_group_exists();
     asio::awaitable<void> receiver(Awakener &awakener);
     asio::awaitable<void> co_main(Awakener &awakener);
-    //asio::awaitable<void> xack(std::string_view stream, std::string_view id);
+    asio::awaitable<void> xack(std::string_view stream, std::string_view id);
+    asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
+                                      const std::unordered_map<std::string, std::string> &fields);
     void read_stream(const redis::generic_response &resp, Awakener &awakener);
     void handleError(const std::string &msg);
   };

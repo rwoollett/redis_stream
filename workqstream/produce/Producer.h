@@ -47,11 +47,11 @@ namespace WorkQStream
   static std::atomic<int> messageSuccessCount = 0;
 
   constexpr int BATCH_SIZE = 10;
+  constexpr int QUEUE_LENGTH = 128;
+  constexpr int MESSAGE_LENGTH = 256;
   constexpr int CHANNEL_LENGTH = 64;
   constexpr int FIELD_NAME_LENGTH = 64;
   constexpr int FIELD_VALUE_LENGTH = 256;
-  constexpr int MESSAGE_LENGTH = 256;
-  constexpr int QUEUE_LENGTH = 128;
   constexpr int MAX_FIELDS = 8;
 
   struct FieldValue
@@ -88,7 +88,6 @@ namespace WorkQStream
 
     bool isRedisSignaled() { return (m_signalStatus == 1); };
     bool isRedisConnected() { return (m_isConnected == 1); };
-
     void enqueue_message(
         const std::string &channel,
         const std::vector<std::pair<std::string, std::string>> &fields);

@@ -14,4 +14,5 @@ namespace WorkQStream
 
   using GroupConfigMap = std::unordered_map<std::string, GroupConfig>;
 
+
 } /* namespace WorkQStream */

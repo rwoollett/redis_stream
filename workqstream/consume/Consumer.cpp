@@ -54,7 +54,8 @@ namespace WorkQStream
   Consumer::Consumer(
       const std::string &workerId,
       Awakener &awakener) : m_ioc{3},
-                            m_conn{},
+                            m_conn_read{},
+                            m_conn_write{},
                             m_signalStatus{0},
                             cstokenMessageCount{0},
                             m_isConnected{0},
@@ -110,7 +111,7 @@ namespace WorkQStream
 
       redis::response<std::string> resp;
       boost::system::error_code ec;
-      co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+      co_await m_conn_write->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
       if (ec)
       {
@@ -216,7 +217,7 @@ namespace WorkQStream
     for (boost::system::error_code ec;;)
     {
       std::cout << "- Consumer::receiver blocking with 5000 until message response" << std::endl;
-      co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+      co_await m_conn_read->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
       if (ec)
       {
         if (ec == asio::error::operation_aborted)
@@ -275,23 +276,36 @@ namespace WorkQStream
     {
       if (std::string(REDIS_USE_SSL) == "on")
       {
-        asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
-        ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
-        load_certificates(ssl_ctx, "tls/ca.crt", /** Your self-signed CA*/ "tls/redis.crt", /** Your client certificate*/ "tls/redis.key" /** Your private key */);
-        ssl_ctx.set_verify_callback(verify_certificate);
-        m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
+        asio::ssl::context ssl_ctx_read{asio::ssl::context::tlsv12_client};
+        asio::ssl::context ssl_ctx_write{asio::ssl::context::tlsv12_client};
+        ssl_ctx_read.set_verify_mode(asio::ssl::verify_peer);
+        ssl_ctx_write.set_verify_mode(asio::ssl::verify_peer);
+        load_certificates(ssl_ctx_read, "tls/ca.crt", /** Your self-signed CA*/ "tls/redis.crt", /** Your client certificate*/ "tls/redis.key" /** Your private key */);
+        load_certificates(ssl_ctx_write, "tls/ca.crt", /** Your self-signed CA*/ "tls/redis.crt", /** Your client certificate*/ "tls/redis.key" /** Your private key */);
+        ssl_ctx_read.set_verify_callback(verify_certificate);
+        ssl_ctx_write.set_verify_callback(verify_certificate);
+        m_conn_read = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_read));
+        m_conn_write = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_write));
       }
       else
       {
-        m_conn = std::make_shared<redis::connection>(ex);
+        m_conn_read = std::make_shared<redis::connection>(ex);
+        m_conn_write = std::make_shared<redis::connection>(ex);
       }
 
-      m_conn->async_run(
+      m_conn_read->async_run(
           cfg,
-          redis::logger{redis::logger::level::info},
-          [self = m_conn](boost::system::error_code ec)
+          redis::logger{redis::logger::level::debug},
+          [self = m_conn_read](boost::system::error_code ec)
           {
-            std::cerr << "[async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
+            std::cerr << "[m_conn_read async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
+          });
+      m_conn_write->async_run(
+          cfg,
+          redis::logger{redis::logger::level::debug},
+          [self = m_conn_write](boost::system::error_code ec)
+          {
+            std::cerr << "[m_conn_write async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
           });
 
       std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;
@@ -322,21 +336,65 @@ namespace WorkQStream
     awakener.stop();
   }
 
-  // asio::awaitable<void> Consumer::xack(std::string_view stream, std::string_view id)
-  // {
-  //   redis::request req;
-  //   req.push("XACK", stream, WORKER_GROUP, id);
-  //   std::cout << "- XACK'd work item:      [STREAM " << stream << "  ID " << id << "]  WORKER GROUP " << WORKER_GROUP << std::endl;
-  //   co_await m_conn->async_exec(req, redis::ignore, asio::use_awaitable);
-  // }
+  void Consumer::xack_now(const std::string &stream, const std::string &id)
+  {
+    asio::co_spawn(
+        m_ioc,
+        xack(stream, id),
+        asio::detached);
+  }
 
-  // void Consumer::xack_now(const std::string &stream, const std::string &id)
-  // {
-  //   asio::co_spawn(
-  //       m_ioc,
-  //       xack(stream, id),
-  //       asio::detached);
-  // }
+  void Consumer::send_to_dlq_now(const std::string &stream, const std::string &id,
+                                 const std::unordered_map<std::string, std::string> &fields)
+  {
+    asio::co_spawn(
+        m_ioc,
+        send_to_dlq(stream, id, fields),
+        asio::detached);
+  }
+
+  void push_dlq_xadd(redis::request &req,
+                     const std::string &stream,
+                     std::string_view id,
+                     const std::unordered_map<std::string, std::string> &fields)
+  {
+    std::vector<std::string> args;
+    args.reserve(4 + fields.size() * 2);
+
+    args.push_back(stream);
+    args.push_back("*");
+
+    args.push_back("orig_id");
+    args.push_back(std::string(id));
+
+    for (auto &[k, v] : fields)
+    {
+      args.push_back(k);
+      args.push_back(v);
+    }
+
+    req.push_range("XADD", args);
+  }
+
+  asio::awaitable<void> Consumer::xack(std::string_view stream, std::string_view id)
+  {
+    redis::request req;
+    req.push("XACK", stream, WORKER_GROUP, id);
+    std::cout << "- XACK'd work item:      [STREAM " << stream << "  ID " << id << "]  WORKER GROUP " << WORKER_GROUP << std::endl;
+    co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
+  }
+
+  asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,
+      const std::unordered_map<std::string, std::string> &fields)
+  {
+    redis::request req;
+    push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
+    std::cout << "- DLQ'd work item:      [STREAM " << std::string(stream) + ".DLQ" << "  ID " << id << "]  WORKER GROUP " << WORKER_GROUP << std::endl;
+    co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
+
+    // Remove from PEL
+    co_await xack(stream, id);
+  }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
 
