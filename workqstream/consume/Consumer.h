@@ -106,6 +106,11 @@ namespace WorkQStream
     asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
                                       const std::unordered_map<std::string, std::string> &fields);
+
+    // Timed routines co spawn in co_main                                      
+    asio::awaitable<void> recover_pending(std::string stream, Awakener &awakener);
+    asio::awaitable<void> trim_stream(std::string stream);
+                                        
     void read_stream(const redis::generic_response &resp, Awakener &awakener);
     void handleError(const std::string &msg);
   };

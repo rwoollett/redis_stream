@@ -22,12 +22,24 @@ namespace WorkQStream
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 10;
+  static const int RECOVER_PENDING_DELAY = 10;
+  static const int TRIM_STREAM_DELAY = 60;
+  static const int TRIM_STREAM_SIZE = 50000;
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
+  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
+  {
+    std::unordered_map<std::string, std::string> field_map;
+    field_map.reserve(item.fields.size());
+    for (auto &[k, v] : item.fields)
+      field_map.emplace(std::string(k), std::string(v));
+    return field_map;
+  }
+
   auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
-    std::cout << "set_verify_callback" << std::endl;
+    //std::cout << "set_verify_callback" << std::endl;
     return true;
   }
   // Helper to load a file into an SSL context
@@ -153,24 +165,16 @@ namespace WorkQStream
         << "  " << k << " = " << v;
         std::cout << std::endl;)
 
-      // Convert to your queue format
-      std::unordered_map<std::string, std::string> field_map;
-      field_map.reserve(item.fields.size());
-
-      for (auto &[k, v] : item.fields)
-        field_map.emplace(std::string(k), std::string(v));
-
-      // Pass to your dispatcher
       awakener.broadcast_single(
-          std::string(item.stream), // service name
-          std::string(item.id),     // message ID
-          std::move(field_map)      // all fields
+          std::string(item.stream),       // service name
+          std::string(item.id),           // message ID
+          std::move(convert_fields(item)) // all fields
       );
     }
 
     // Debug
     cstokenMessageCount += dispatch_items.size();
-    std::cout << "\n#******************************************************\n";
+    std::cout << "\n******************************************************\n";
     std::cout << cstokenMessageCount << " successful messages received. " << std::endl
               << dispatch_items.size() << " messages in this response received. "
               << std::endl;
@@ -179,11 +183,11 @@ namespace WorkQStream
 
   auto Consumer::receiver(Awakener &awakener) -> asio::awaitable<void>
   {
-    std::cout << "Valid streams\n";
-    for (const auto &stream : m_validStreams)
-    {
-      std::cout << stream << std::endl;
-    }
+    // std::cout << "Valid streams\n";
+    // for (const auto &stream : m_validStreams)
+    // {
+    //   std::cout << stream << std::endl;
+    // }
 
     redis::request req;
     std::vector<std::string> args;
@@ -199,7 +203,7 @@ namespace WorkQStream
     size_t index = 0;
     for (auto it = m_validStreams.begin(); it != m_validStreams.end(); ++it, ++index)
     {
-      std::cout << "Index " << index << ": " << *it << '\n';
+      //std::cout << "Index " << index << ": " << *it << '\n';
       args.push_back(*it);
     }
     for (size_t i = 0; i < m_validStreams.size(); ++i)
@@ -216,7 +220,7 @@ namespace WorkQStream
 
     for (boost::system::error_code ec;;)
     {
-      std::cout << "- Consumer::receiver blocking with 5000 until message response" << std::endl;
+      D(std::cout << "- Consumer::receiver blocking with 5000 until message response" << std::endl;)
       co_await m_conn_read->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
       if (ec)
       {
@@ -226,7 +230,7 @@ namespace WorkQStream
           co_return; // true; // false; // do not reconnect this ec
         }
 
-        std::cout << "Perform a full reconnect to redis. Reason for error: " << std::endl;
+        D(std::cout << "Perform a full reconnect to redis. Reason for error: " << std::endl;)
         throw std::runtime_error(
             make_ops_error(
                 "XREADGROUP", "(n/a)",
@@ -262,11 +266,11 @@ namespace WorkQStream
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
 #endif
-    std::cout << "- Consumer co_main signal set" << std::endl;
+    D(std::cout << "- Consumer co_main signal set" << std::endl;)
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
-          std::cout << "- Consumer is signaled" << std::endl;
+          D(std::cout << "- Consumer is signaled" << std::endl;)
           m_signalStatus = 1;
           awakener.stop();
         });
@@ -295,20 +299,29 @@ namespace WorkQStream
 
       m_conn_read->async_run(
           cfg,
-          redis::logger{redis::logger::level::debug},
+          redis::logger{redis::logger::level::err},
           [self = m_conn_read](boost::system::error_code ec)
           {
             std::cerr << "[m_conn_read async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
           });
       m_conn_write->async_run(
           cfg,
-          redis::logger{redis::logger::level::debug},
+          redis::logger{redis::logger::level::err},
           [self = m_conn_write](boost::system::error_code ec)
           {
             std::cerr << "[m_conn_write async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
           });
 
-      std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;
+      asio::co_spawn(
+          m_ioc,
+          recover_pending("ttt_player_Move", awakener),
+          asio::detached);
+      asio::co_spawn(
+          m_ioc,
+          trim_stream("ttt_player_Move"),
+          asio::detached);
+
+      //std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;
       try
       {
         co_await ensure_group_exists();
@@ -385,7 +398,7 @@ namespace WorkQStream
   }
 
   asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,
-      const std::unordered_map<std::string, std::string> &fields)
+                                              const std::unordered_map<std::string, std::string> &fields)
   {
     redis::request req;
     push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
@@ -394,6 +407,104 @@ namespace WorkQStream
 
     // Remove from PEL
     co_await xack(stream, id);
+  }
+
+  asio::awaitable<void> Consumer::recover_pending(std::string stream, Awakener &awakener)
+  {
+    auto ex = co_await asio::this_coro::executor;
+
+    while (true)
+    {
+      try
+      {
+        // 1. Get up to 10 pending messages
+        std::cout << "#### XPENDING data " << stream << " " << std::string(WORKER_GROUP) << std::endl;
+        redis::request req;
+        req.push("XPENDING", stream, std::string(WORKER_GROUP), "-", "+", "10");
+
+        redis::generic_response resp;
+        co_await m_conn_write->async_exec(req, resp, asio::use_awaitable);
+        auto pendings = parse_xpending(resp);
+
+        for (auto &p : pendings)
+        {
+          std::cout << " - Pending ID: " << p.id
+                    << " consumer=" << p.consumer
+                    << " idle=" << p.idle_ms
+                    << " deliveries=" << p.delivery_count << "\n";
+        }
+
+        if (pendings.empty())
+        {
+          co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY)).async_wait(asio::use_awaitable);
+          continue;
+        }
+
+        for (auto &p : pendings)
+        {
+          // Optional: DLQ logic
+          if (p.delivery_count > 5)
+          {
+            co_await send_to_dlq(stream, p.id, {/** field are missing can be retirnwith XREADGROUP see later */});
+            continue;
+          }
+
+          // 2. Claim the message
+          redis::request claim;
+          claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id,
+                     "0", p.id);
+
+          redis::generic_response claim_resp;
+          co_await m_conn_write->async_exec(claim, claim_resp, asio::use_awaitable);
+
+          // 3. Fetch the message fields
+          redis::request read_req;
+          read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id,
+                        "STREAMS", stream, p.id);
+
+          redis::generic_response read_resp;
+          co_await m_conn_write->async_exec(read_req, read_resp, asio::use_awaitable);
+
+          auto items = parse_dispatch_view(read_resp);
+
+          for (auto &item : items)
+          {
+            std::cout << "- Broadcasted XCLAIMED work item: [STREAM " << item.stream << "  ID " << item.id << "]  Fields: ";
+            for (auto &[k, v] : item.fields)
+              std::cout << "  " << k << " = " << v;
+            std::cout << std::endl;
+            // 4. Push into your Awakener queue
+            awakener.broadcast_single(
+                std::string(item.stream),
+                std::string(item.id),
+                std::move(convert_fields(item)));
+          }
+        }
+      }
+      catch (std::exception &e)
+      {
+        std::cerr << "[XPENDING recovery] error: " << e.what() << "\n";
+      }
+
+      // Sleep before next scan
+      co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY)).async_wait(asio::use_awaitable);
+    }
+  }
+
+  asio::awaitable<void> Consumer::trim_stream(std::string stream)
+  {
+    auto ex = co_await asio::this_coro::executor;
+
+    while (true)
+    {
+      redis::request req;
+      std::cout << "#### XTRIM "  << stream << " " <<  std::to_string(TRIM_STREAM_SIZE) << "\n";
+      req.push("XTRIM", stream, "MAXLEN", "~", std::to_string(TRIM_STREAM_SIZE));
+
+      co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
+
+      co_await asio::steady_timer(ex, std::chrono::seconds(TRIM_STREAM_DELAY)).async_wait(asio::use_awaitable);
+    }
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)

@@ -80,12 +80,12 @@ int main(int argc, char **argv)
 
       bool ok = false; // process_job(stream, fields);
 
-      if (ok)
-      {
-        redisSubscribe.xack_now(stream, id);
-      } else {
-        redisSubscribe.send_to_dlq_now(stream, id, fields);
-      }
+      // if (ok)
+      // {
+      //   redisSubscribe.xack_now(stream, id);
+      // } else {
+      //   redisSubscribe.send_to_dlq_now(stream, id, fields);
+      // }
     }
     std::cout << "Exited normally\n";
   }

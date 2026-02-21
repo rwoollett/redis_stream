@@ -105,4 +105,56 @@ namespace WorkQStream
     return out;
   }
 
+  std::vector<PendingEntry> parse_xpending(const redis::generic_response &resp)
+  {
+    std::vector<PendingEntry> out;
+
+    PendingEntry current{};
+    int expecting = 0; // how many children left to read
+
+    for (auto const &n : resp.value())
+    {
+      // Start of a new XPENDING entry
+      if (n.depth == 1 && n.aggregate_size == 4)
+      {
+        // If previous entry was partially filled, push it
+        if (expecting == 0 && !current.id.empty())
+          out.push_back(std::move(current));
+
+        current = PendingEntry{};
+        expecting = 4;
+        continue;
+      }
+
+      // Child nodes (depth=2)
+      if (n.depth == 2 && expecting > 0)
+      {
+        switch (4 - expecting)
+        {
+        case 0:
+          current.id = n.value;
+          break;
+        case 1:
+          current.consumer = n.value;
+          break;
+        case 2:
+          current.idle_ms = std::stoll(n.value);
+          break;
+        case 3:
+          current.delivery_count = std::stoll(n.value);
+          break;
+        }
+
+        expecting--;
+
+        // Completed one entry
+        if (expecting == 0)
+          out.push_back(std::move(current));
+
+        continue;
+      }
+    }
+
+    return out;
+  }
 }
