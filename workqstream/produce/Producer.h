@@ -42,9 +42,9 @@ namespace redis = boost::redis;
 namespace WorkQStream
 {
 
-  static std::atomic<int> messageQueuedCount = 0;
-  static std::atomic<int> messageCount = 0;
-  static std::atomic<int> messageSuccessCount = 0;
+  static std::atomic<int> MESSAGE_QUEUED_COUNT = 0;
+  static std::atomic<int> MESSAGE_COUNT = 0;
+  static std::atomic<int> MESSAGE_SUCCESS_COUNT = 0;
 
   constexpr int BATCH_SIZE = 10;
   constexpr int QUEUE_LENGTH = 128;
@@ -72,25 +72,20 @@ namespace WorkQStream
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
     boost::lockfree::queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
-    volatile std::sig_atomic_t m_signalStatus;
-    volatile std::sig_atomic_t m_isConnected;
+    volatile std::sig_atomic_t m_signal_status;
+    volatile std::sig_atomic_t m_is_connected;
     std::thread m_sender_thread;
-    int m_reconnectCount{0};
+    int m_reconnect_count{0};
     GroupConfigMap m_group_config{};
-    std::unordered_set<std::string> m_validStreams{};
+    std::unordered_set<std::string> m_valid_streams{};
 
   public:
-    /// Constructor
     Producer();
-
-    /// Deconstructor
     virtual ~Producer();
 
-    bool isRedisSignaled() { return (m_signalStatus == 1); };
-    bool isRedisConnected() { return (m_isConnected == 1); };
-    void enqueue_message(
-        const std::string &channel,
-        const std::vector<std::pair<std::string, std::string>> &fields);
+    bool is_signal_stopped() { return (m_signal_status == 1); };
+    bool is_redis_connected() { return (m_is_connected == 1); };
+    void enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields);
 
   private:
     asio::awaitable<void> co_main();
@@ -99,15 +94,15 @@ namespace WorkQStream
 
   class Sender : public std::enable_shared_from_this<Sender>
   {
-    WorkQStream::Producer &m_redisProducer;
+    WorkQStream::Producer &m_redis_producer;
 
   public:
-    Sender(WorkQStream::Producer &publisher) : m_redisProducer{publisher} {};
+    Sender(WorkQStream::Producer &publisher) : m_redis_producer{publisher} {};
     ~Sender() {};
 
     void Send(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &message)
     {
-      m_redisProducer.enqueue_message(channel, message);
+      m_redis_producer.enqueue_message(channel, message);
     };
   };
 

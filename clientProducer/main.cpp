@@ -31,12 +31,12 @@ int main(int argc, char **argv)
     WorkQStream::Producer producer;
     // Before running do a sanity check on connections for Redis.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    std::cout << "Redis producer connected: " << (producer.isRedisConnected() ? "true" : "false") << std::endl;
+    std::cout << "Redis producer connected: " << (producer.is_redis_connected() ? "true" : "false") << std::endl;
 
     auto doWork = [&producer](const std::string &channel,
                                      const std::vector<std::pair<std::string,std::string>> &fields = {{"postid", "c1234"}})
     {
-      if (!producer.isRedisConnected())
+      if (!producer.is_redis_connected())
       {
         std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
       } else {
@@ -54,7 +54,7 @@ int main(int argc, char **argv)
     while (!m_worker_shall_stop)
     {
 
-      if (producer.isRedisSignaled())
+      if (producer.is_signal_stopped())
       {
         std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;

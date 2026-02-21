@@ -59,11 +59,11 @@ namespace WorkQStream
   Producer::Producer() : m_ioc{2},
                          m_conn{},
                          msg_queue{},
-                         m_signalStatus{0},
-                         m_isConnected{0},
+                         m_signal_status{0},
+                         m_is_connected{0},
                          m_sender_thread{},
                          m_group_config(load_group_config()),
-                         m_validStreams{}
+                         m_valid_streams{}
   {
     D(std::cerr << "Produce created\n";)
     if (REDIS_GROUP_CONFIG == nullptr ||
@@ -81,7 +81,7 @@ namespace WorkQStream
           throw std::runtime_error("Stream name cannot be empty");
         if (s.find(' ') != std::string::npos)
           throw std::runtime_error("Stream name cannot contain spaces: " + s);
-        m_validStreams.insert(s);
+        m_valid_streams.insert(s);
       }
     }
     asio::co_spawn(m_ioc.get_executor(), Producer::co_main(), asio::detached);
@@ -96,7 +96,7 @@ namespace WorkQStream
     int countMsg = 0;
     while (!msg_queue.empty())
     {
-      if (m_isConnected == 0)
+      if (m_is_connected == 0)
       {
         msg_queue.pop(msg);
         countMsg++;
@@ -107,7 +107,7 @@ namespace WorkQStream
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
       }
     };
-    if (m_isConnected == 0)
+    if (m_is_connected == 0)
     {
       std::cout << "Redis Produceer found not connected to redis: " << countMsg << " messages deleted\n";
     }
@@ -118,14 +118,12 @@ namespace WorkQStream
     std::cerr << "Redis Producer destroyed\n";
   }
 
-  void Producer::enqueue_message(
-      const std::string &channel,
-      const std::vector<std::pair<std::string, std::string>> &fields)
+  void Producer::enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields)
   {
-    if (m_signalStatus == 1)
+    if (m_signal_status == 1)
       return;
 
-    validate_stream_or_throw(channel, m_validStreams, "(n/a)");
+    validate_stream_or_throw(channel, m_valid_streams, "(n/a)");
 
     ProduceMessage msg;
     std::strncpy(msg.channel, channel.c_str(), CHANNEL_LENGTH - 1);
@@ -143,13 +141,11 @@ namespace WorkQStream
       i++;
     }
 
-    messageQueuedCount++;
+    MESSAGE_QUEUED_COUNT++;
     msg_queue.push(msg);
   }
 
-  void push_xadd(redis::request &req,
-                 const std::string &stream,
-                 const ProduceMessage &m)
+  void push_xadd(redis::request &req, const std::string &stream, const ProduceMessage &m)
   {
     std::vector<std::string> args;
     args.reserve(2 + m.field_count * 2);
@@ -175,7 +171,7 @@ namespace WorkQStream
     co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
     if (ec)
     {
-      m_isConnected = 0;
+      m_is_connected = 0;
       std::cout << make_ops_error(
                        "PING", "(n/a)",
                        "(n/a)", "(n/a)",
@@ -242,8 +238,8 @@ namespace WorkQStream
       }
     }
 
-    m_isConnected = 1;
-    m_reconnectCount = 0; // reset
+    m_is_connected = 1;
+    m_reconnect_count = 0; // reset
     for (boost::system::error_code ec;;)
     {
       std::vector<ProduceMessage> batch;
@@ -253,7 +249,7 @@ namespace WorkQStream
         if (batch.size() < BATCH_SIZE)
         {
           batch.push_back(msg);
-          messageCount++;
+          MESSAGE_COUNT++;
         }
         else
         {
@@ -287,22 +283,22 @@ namespace WorkQStream
             for (const auto &m : batch)
             {
               msg_queue.push(m);
-              messageCount--;
+              MESSAGE_COUNT--;
             }
 
             co_return; // Connection lost, exit function and try reconnect to redis.
           }
 
-          messageSuccessCount++;
+          MESSAGE_SUCCESS_COUNT++;
 
           std::string XID = std::get<0>(resp).value();
           std::cout << "XADD ID: " << XID << std::endl;
 
           std::cout
               << "Redis Produce: " << " batch size: " << batch.size() << ". "
-              << messageQueuedCount << " queued, "
-              << messageCount << " sent, "
-              << messageSuccessCount << " Produceed. "
+              << MESSAGE_QUEUED_COUNT << " queued, "
+              << MESSAGE_COUNT << " sent, "
+              << MESSAGE_SUCCESS_COUNT << " Produceed. "
               << std::endl;
         }
       }
@@ -334,7 +330,7 @@ namespace WorkQStream
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
-          m_signalStatus = 1;
+          m_signal_status = 1;
         });
 
     for (;;)
@@ -368,8 +364,8 @@ namespace WorkQStream
       }
 
       // Delay before reconnecting
-      m_reconnectCount++;
-      std::cout << "Producer process messages exited " << m_reconnectCount << " times, reconnecting in "
+      m_reconnect_count++;
+      std::cout << "Producer process messages exited " << m_reconnect_count << " times, reconnecting in "
                 << CONNECTION_RETRY_DELAY << " second..." << std::endl;
 
       m_conn->cancel();
@@ -379,12 +375,12 @@ namespace WorkQStream
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
-      if (m_reconnectCount >= CONNECTION_RETRY_AMOUNT)
+      if (m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
     }
-    m_signalStatus = 1;
+    m_signal_status = 1;
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
