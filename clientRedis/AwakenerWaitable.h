@@ -67,7 +67,7 @@ public:
     for (auto& [k, v] : fields)
         work_item.fields.emplace(k, v);
 
-    std::cout << "AwakenerWaitable::broadcast_single\n";
+    D(std::cout << "AwakenerWaitable::broadcast_single\n";)
     {
       std::unique_lock<std::mutex> cl(m_class_lock);
       m_work_queue.push(work_item);
@@ -79,7 +79,7 @@ public:
 
   virtual void stop()
   {
-    std::cout << "AwakenerWaitable::stop\n";
+    D(std::cout << "AwakenerWaitable::stop\n";)
     {
       std::unique_lock<std::mutex> cl(m_class_lock);
       shall_stop_awaken = true;
