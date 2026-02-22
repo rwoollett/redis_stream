@@ -17,6 +17,7 @@ namespace WorkQStream
 {
 
   static const char *WORKER_GROUP = std::getenv("WORKER_GROUP");
+  static const char *WORKER_RECOVER_PENDING = std::getenv("WORKER_RECOVER_PENDING");
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
@@ -77,9 +78,10 @@ namespace WorkQStream
   {
     D(std::cerr << "Consumer created\n";)
     if (REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
-        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
+        WORKER_RECOVER_PENDING == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, WORKER_RECOVER_PENDING and REDIS_USE_SSL must be set.");
     }
     for (const auto &s : get_worker_group(m_group_config).streams)
     {
@@ -298,14 +300,17 @@ namespace WorkQStream
             std::cerr << "[m_conn_write async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
           });
 
-      asio::co_spawn(
-          m_ioc,
-          recover_pending("ttt_player_Move", awakener),
-          asio::detached);
-      asio::co_spawn(
-          m_ioc,
-          trim_stream("ttt_player_Move"),
-          asio::detached);
+      if (std::string(WORKER_RECOVER_PENDING) == "on")
+      {
+        asio::co_spawn(
+            m_ioc,
+            recover_pending(std::string(WORKER_GROUP), awakener),
+            asio::detached);
+        asio::co_spawn(
+            m_ioc,
+            trim_stream(std::string(WORKER_GROUP)),
+            asio::detached);
+      }
 
       co_await asio::steady_timer(co_await asio::this_coro::executor, std::chrono::milliseconds(500)).async_wait(asio::use_awaitable);
 
