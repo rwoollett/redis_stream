@@ -92,9 +92,9 @@ namespace WorkQStream
 
     virtual bool is_signal_stopped() { return (m_signal_status == 1); };
     bool is_redis_connected() { return (m_is_connected == 1); };
-    void xack_now(const std::string &stream, const std::string &id);
-    void send_to_dlq_now(const std::string &stream, const std::string &id,
-                         const std::unordered_map<std::string, std::string> &fields);
+    void xack_now(std::string stream, std::string id);
+    void send_to_dlq_now(std::string stream, std::string id,
+                         std::unordered_map<std::string, std::string> fields);
 
   private:
     asio::awaitable<void> ensure_group_exists();

@@ -72,10 +72,10 @@ int main(int argc, char **argv)
       const std::string &id = work.id;
       const auto &fields = work.fields;
       // The base class will print the messages.
-      D(std::cout << "- Consumer work item: [STREAM " << stream << "      ID " << id << "]  Fields: ";
+      std::cout << "- Consumer work item: [STREAM " << stream << "      ID " << id << "]  Fields: ";
       for (auto &[k, v] : fields)
         std::cout << "  " << k << " = " << v;
-      std::cout << std::endl;)
+      std::cout << std::endl;
 
       bool ok = false; // process_job(stream, fields);
 

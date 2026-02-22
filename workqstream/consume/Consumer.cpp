@@ -120,7 +120,7 @@ namespace WorkQStream
       redis::response<std::string> resp;
       boost::system::error_code ec;
       co_await m_conn_write->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-      //std::cerr << "what ec\n";
+      // std::cerr << "what ec\n";
 
       if (ec)
       {
@@ -205,7 +205,7 @@ namespace WorkQStream
     {
       D(std::cout << "- Consumer::receiver blocking with 5000 until message response" << std::endl;)
       co_await m_conn_read->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-      //std::cerr << "what ec\n";
+      // std::cerr << "what ec\n";
       if (ec)
       {
         if (ec == asio::error::operation_aborted)
@@ -262,7 +262,7 @@ namespace WorkQStream
     // bool should_reconnect = false;
     for (;;)
     {
-      std::cerr << "WorkQStream consumer co_main: create connections" << std::endl;
+      D(std::cerr << "WorkQStream consumer co_main: create connections" << std::endl;)
       if (std::string(REDIS_USE_SSL) == "on")
       {
         asio::ssl::context ssl_ctx_read{asio::ssl::context::tlsv12_client};
@@ -282,7 +282,7 @@ namespace WorkQStream
         m_conn_write = std::make_shared<redis::connection>(ex);
       }
 
-      std::cerr << "WorkQStream consumer co_main: run connections" << std::endl;
+      D(std::cerr << "WorkQStream consumer co_main: run connections" << std::endl;)
       m_conn_read->async_run(
           cfg,
           redis::logger{redis::logger::level::err},
@@ -311,9 +311,9 @@ namespace WorkQStream
 
       try
       {
-        std::cerr << "WorkQStream consumer co_main: ensure_group_exists" << std::endl;
+        D(std::cerr << "WorkQStream consumer co_main: ensure_group_exists" << std::endl;)
         co_await ensure_group_exists();
-        std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;
+        D(std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;)
         co_await receiver(awakener);
       }
       catch (const std::exception &e)
@@ -325,8 +325,8 @@ namespace WorkQStream
       m_reconnect_count++;
       std::cerr << "Receiver exited " << m_reconnect_count << " times, reconnecting in " << CONNECTION_RETRY_DELAY << " second..." << std::endl;
 
-      m_conn_read->cancel();
-      m_conn_write->cancel();
+      // m_conn_read->cancel();
+      // m_conn_write->cancel();
 
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
       D(std::cerr << "Timer done." << std::endl;)
@@ -342,20 +342,27 @@ namespace WorkQStream
     awakener.stop();
   }
 
-  void Consumer::xack_now(const std::string &stream, const std::string &id)
+  void Consumer::xack_now(std::string stream, std::string id)
   {
     asio::co_spawn(
         m_ioc,
-        xack(stream, id),
+        [this, stream = std::move(stream), id = std::move(id)]() mutable -> asio::awaitable<void>
+        {
+          co_await xack(stream, id);
+        },
         asio::detached);
   }
 
-  void Consumer::send_to_dlq_now(const std::string &stream, const std::string &id,
-                                 const std::unordered_map<std::string, std::string> &fields)
+  void Consumer::send_to_dlq_now(std::string stream,
+                                 std::string id,
+                                 std::unordered_map<std::string, std::string> fields)
   {
     asio::co_spawn(
         m_ioc,
-        send_to_dlq(stream, id, fields),
+        [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable -> asio::awaitable<void>
+        {
+          co_await send_to_dlq(stream, id, fields);
+        },
         asio::detached);
   }
 
@@ -475,7 +482,7 @@ namespace WorkQStream
       }
       catch (std::exception &e)
       {
-        std::cerr << "[XPENDING recovery] error: " << e.what() << "\n";
+        std::cerr << "XPENDING recovery     error: " << e.what() << "\n";
       }
 
       // Sleep before next scan
@@ -489,12 +496,18 @@ namespace WorkQStream
 
     while (true)
     {
-      redis::request req;
-      std::cout << "XTRIM data            [STREAM " << stream << "      WORKER GROUP " << std::string(WORKER_GROUP) << "]" << std::endl;
-      req.push("XTRIM", stream, "MAXLEN", "~", std::to_string(TRIM_STREAM_SIZE));
+      try
+      {
+        redis::request req;
+        std::cout << "XTRIM data            [STREAM " << stream << "      WORKER GROUP " << std::string(WORKER_GROUP) << "]" << std::endl;
+        req.push("XTRIM", stream, "MAXLEN", "~", std::to_string(TRIM_STREAM_SIZE));
 
-      co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
-
+        co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
+      }
+      catch (std::exception &e)
+      {
+        std::cerr << "XTRIM recovery        error: " << e.what() << "\n";
+      }
       co_await asio::steady_timer(ex, std::chrono::seconds(TRIM_STREAM_DELAY)).async_wait(asio::use_awaitable);
     }
   }
