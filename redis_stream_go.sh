@@ -38,9 +38,11 @@ fi
 . ./set_env.sh
 
 
+(./$cmakedir/clientRedis/ClientRedis worker_$$_recovery > output_scrb_$$_recovery.log 2>&1 &)
 count=1
-while [ $count -le 4 ]; do
+while [ $count -le 3 ]; do
   sleep .4
+  export WORKER_RECOVER_PENDING=off
   (./$cmakedir/clientRedis/ClientRedis worker_$$_$count > output_scrb_$$_$count.log 2>&1 &)
   ((count++))
 done

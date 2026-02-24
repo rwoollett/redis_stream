@@ -302,14 +302,17 @@ namespace WorkQStream
 
       if (std::string(WORKER_RECOVER_PENDING) == "on")
       {
-        asio::co_spawn(
-            m_ioc,
-            recover_pending(std::string(WORKER_GROUP), awakener),
-            asio::detached);
-        asio::co_spawn(
-            m_ioc,
-            trim_stream(std::string(WORKER_GROUP)),
-            asio::detached);
+        for (const auto &stream : m_valid_streams)
+        {
+          asio::co_spawn(
+              m_ioc,
+              recover_pending(stream, awakener),
+              asio::detached);
+          asio::co_spawn(
+              m_ioc,
+              trim_stream(stream),
+              asio::detached);
+        }
       }
 
       co_await asio::steady_timer(co_await asio::this_coro::executor, std::chrono::milliseconds(500)).async_wait(asio::use_awaitable);
