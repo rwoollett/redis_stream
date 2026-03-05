@@ -4,8 +4,9 @@
 #include <condition_variable>
 #include <thread>
 #include <iostream>
-#include "../workqstream/produce/Producer.h" 
-#include <boost/redis/src.hpp>       
+#include "../workqstream/produce/Producer.h"
+#include <boost/redis/src.hpp>
+#include <mtlog/mt_log.hpp>
 
 int main(int argc, char **argv)
 {
@@ -24,6 +25,11 @@ int main(int argc, char **argv)
   {
     std::cout << "Using command line arguments as channels to publish messages." << std::endl;
   }
+  mt_logging::logger().log(
+      {"output_publ.log",
+       "output_publ.log",
+       std::ios::out,
+       true});
 
   try
   {
@@ -31,32 +37,45 @@ int main(int argc, char **argv)
     WorkQStream::Producer producer;
     // Before running do a sanity check on connections for Redis.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    std::cout << "Redis producer connected: " << (producer.is_redis_connected() ? "true" : "false") << std::endl;
+    // Log and create ClientProducer log
+    mt_logging::logger().log(
+        {"output_publ.log",
+         fmt::format("Redis producer connected: {}", (producer.is_redis_connected() ? "true" : "false")),
+         std::ios::app,
+         true});
 
     auto doWork = [&producer](const std::string &channel,
-                                     const std::vector<std::pair<std::string,std::string>> &fields = {{"postid", "c1234"}})
+                              const std::vector<std::pair<std::string, std::string>> &fields = {{"postid", "c1234"}})
     {
       if (!producer.is_redis_connected())
       {
-        std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
-      } else {
+        mt_logging::logger().log(
+            {"output_publ.log",
+             fmt::format("Redis connection failed, cannot publish message to channel: {}", channel),
+             std::ios::app,
+             true});
+      }
+      else
+      {
         producer.enqueue_message(channel, fields);
-        D(std::cout << "Published message to channel: " << channel << " with message (";
-        for (auto& [field, value] : fields) {
-          std::cout << field << " = " << value << " ";
-        }
-        std::cout << ")" << std::endl;)
+
+        D(mt_logging::logger().log(
+            {"output_publ.log",
+             fmt::format("Published message to channel: {} with message {}", channel, fmt::join(fields, ", ")),
+             std::ios::app,
+             true});)
       }
     };
 
-    std::cout << "Application loop stated\n";
+    // The only messages to console
+    //std::cout << "Application loop stated (Ctrl-C to signal stop)\n";
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
 
       if (producer.is_signal_stopped())
       {
-        std::cout << "Signal to Stopped" << std::endl;
+        //std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
         continue;
       }
@@ -79,15 +98,15 @@ int main(int argc, char **argv)
   }
   catch (const std::exception &e)
   {
-    std::cout << e.what() << "\n";
+    std::cerr << e.what() << "\n";
     return EXIT_FAILURE;
   }
   catch (const std::string &e)
   {
-    std::cout << e << "\n";
+    std::cerr << e << "\n";
     return EXIT_FAILURE;
   }
 
-  std::cout << "Exited normally\n";
+  //std::cout << "Exited normally\n";
   return EXIT_SUCCESS;
 }

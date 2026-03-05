@@ -1,7 +1,5 @@
 ﻿boost_1_86_0
 *.tar.gz
-build
-vscode_build
 scratch.txt
 .env
 /.idea/
@@ -15,7 +13,38 @@ build.log
 set_env.sh
 output_publ*
 output_scrb*
+output_rs*
 tls
+# --- Build directories (CMake presets) ---
+build/
+vscode_build/
+
+# --- CMake generated files ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.cmake
+
+# --- Preset user overrides ---
+CMakeUserPresets.json
+
+# --- VS Code CMake Tools cache ---
+.vscode/cmake-kits.json
+.vscode/cmake-tools-kits.json
+.vscode/cmake-tools.json
+
+# --- Compile commands ---
+compile_commands.json
+
+# --- Editor / OS noise ---
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+
 
 
 

@@ -30,7 +30,7 @@
 #include <boost/redis/connection.hpp>
 #include <boost/redis/logger.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/lockfree/queue.hpp>
+#include <boost/lockfree/spsc_queue.hpp>
 #include <thread>
 #include <iostream>
 #include <memory>
@@ -71,11 +71,11 @@ namespace WorkQStream
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    boost::lockfree::queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
-    volatile std::sig_atomic_t m_signal_status;
-    volatile std::sig_atomic_t m_is_connected;
+    boost::lockfree::spsc_queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    std::atomic<bool> m_signal_status;
+    std::atomic<bool> m_is_connected;
+    std::atomic<std::sig_atomic_t> m_reconnect_count;
     std::thread m_sender_thread;
-    int m_reconnect_count{0};
     GroupConfigMap m_group_config{};
     std::unordered_set<std::string> m_valid_streams{};
 
@@ -83,8 +83,8 @@ namespace WorkQStream
     Producer();
     virtual ~Producer();
 
-    bool is_signal_stopped() { return (m_signal_status == 1); };
-    bool is_redis_connected() { return (m_is_connected == 1); };
+    bool is_signal_stopped() { return (m_signal_status.load()); };
+    bool is_redis_connected() { return (m_is_connected.load()); };
     void enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields);
 
   private:

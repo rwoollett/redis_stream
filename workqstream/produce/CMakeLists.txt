@@ -14,6 +14,11 @@ target_include_directories(WorkQProduce
         $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
 )
 
-target_link_libraries(WorkQProduce PRIVATE WorkQCommon)
+target_link_libraries(WorkQProduce 
+    PUBLIC 
+      MTLog
+    PRIVATE 
+      WorkQCommon
+)
 
 

@@ -3,6 +3,15 @@ project(WorkQStream VERSION 1.0
         DESCRIPTION "Redis stream for work queue produce and consume with ack message"
         LANGUAGES C CXX)
 
+  # Add a custom build type for Valgrind/Helgrind
+  set(CMAKE_CONFIGURATION_TYPES "Debug;Release;ValgrindDebug" CACHE STRING "" FORCE)
+
+  set(CMAKE_CXX_FLAGS_VALGRINDDEBUG "-O0 -g3 -fno-omit-frame-pointer -fno-inline -fno-optimize-sibling-calls")
+  set(CMAKE_C_FLAGS_VALGRINDDEBUG   "-O0 -g3 -fno-omit-frame-pointer -fno-inline -fno-optimize-sibling-calls")
+
+  set(CMAKE_EXE_LINKER_FLAGS_VALGRINDDEBUG "")
+  set(CMAKE_SHARED_LINKER_FLAGS_VALGRINDDEBUG "")
+
 # set everything up for c++ 20 features - require coroutines and BOOST_ASIO_HAS_CO_AWAIT
 set(CMAKE_CXX_STANDARD 20) 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,12 +29,22 @@ find_package(Boost 1.86 REQUIRED)
 
 option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
 
+include(FetchContent)
+# refetch
+FetchContent_Declare(
+    MTLog
+    GIT_REPOSITORY https://github.com/rwoollett/mtlog.git
+    GIT_TAG master
+)
+
+FetchContent_MakeAvailable(MTLog)
+
 add_subdirectory(workqstream/common)
 add_subdirectory(workqstream/consume)
 add_subdirectory(workqstream/produce)
 
 if (BUILD_WORKQ_TESTS)
-  include(FetchContent)
+
   FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git

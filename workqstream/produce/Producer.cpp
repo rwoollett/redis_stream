@@ -7,6 +7,7 @@
 #include <string>
 #include <tuple>
 #include <iomanip>
+#include <mtlog/mt_log.hpp>
 
 #ifdef HAVE_ASIO
 
@@ -19,6 +20,7 @@
 namespace WorkQStream
 {
 
+  static const char *REDIS_STREAM_PRODUCER_LOGFILE = std::getenv("REDIS_STREAM_PRODUCER_LOGFILE");
   static const char *REDIS_GROUP_CONFIG = std::getenv("REDIS_GROUP_CONFIG");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
@@ -52,26 +54,39 @@ namespace WorkQStream
     }
     catch (const std::exception &e)
     {
-      std::cerr << "Producer::load certiciates " << e.what() << std::endl;
+      mt_logging::logger().log(
+          {REDIS_STREAM_PRODUCER_LOGFILE,
+           fmt::format("Producer::load certiciates {}", e.what()),
+           std::ios::app,
+           true});
     }
   }
 
   Producer::Producer() : m_ioc{2},
                          m_conn{},
                          msg_queue{},
-                         m_signal_status{0},
-                         m_is_connected{0},
-                         m_sender_thread{},
                          m_group_config(load_group_config()),
                          m_valid_streams{}
   {
-    D(std::cerr << "Produce created\n";)
     if (REDIS_GROUP_CONFIG == nullptr ||
         REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
-        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
+        REDIS_STREAM_PRODUCER_LOGFILE == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_STREAM_PRODUCER_LOGFILE, REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
+
+    MESSAGE_QUEUED_COUNT.store(0);
+    MESSAGE_COUNT.store(0);
+    MESSAGE_SUCCESS_COUNT.store(0);
+
+    m_is_connected.store(false);
+    m_signal_status.store(false);
+    D(mt_logging::logger().log(
+        {REDIS_STREAM_PRODUCER_LOGFILE,
+         "Producer created",
+         std::ios::app,
+         true});)
 
     for (const auto &[groupName, cfg] : m_group_config)
     {
@@ -96,31 +111,43 @@ namespace WorkQStream
     int countMsg = 0;
     while (!msg_queue.empty())
     {
-      if (m_is_connected == 0)
+      if (!m_is_connected.load())
       {
         msg_queue.pop(msg);
         countMsg++;
       }
       else
       {
-        D(std::cout << "Redis Produceer destructor found msg.\n";)
+        D(mt_logging::logger().log(
+            {REDIS_STREAM_PRODUCER_LOGFILE,
+             "Redis Produceer destructor found msg.",
+             std::ios::app,
+             true});)
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
       }
     };
-    if (m_is_connected == 0)
+    if (!m_is_connected.load())
     {
-      std::cout << "Redis Produceer found not connected to redis: " << countMsg << " messages deleted\n";
+      mt_logging::logger().log(
+          {REDIS_STREAM_PRODUCER_LOGFILE,
+           fmt::format("Redis Produceer found not connected to redis: {} messages deleted", countMsg),
+           std::ios::app,
+           true});
     }
 
     m_ioc.stop();
     if (m_sender_thread.joinable())
       m_sender_thread.join();
-    std::cerr << "Redis Producer destroyed\n";
+    mt_logging::logger().log(
+        {REDIS_STREAM_PRODUCER_LOGFILE,
+         "Redis Producer destroyed",
+         std::ios::app,
+         true});
   }
 
   void Producer::enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields)
   {
-    if (m_signal_status == 1)
+    if (m_signal_status.load())
       return;
 
     validate_stream_or_throw(channel, m_valid_streams, "(n/a)");
@@ -133,7 +160,6 @@ namespace WorkQStream
     int i = 0;
     for (const auto &[in_field, in_value] : fields)
     {
-      D(std::cout << in_field << " " << in_value << " sizes " << in_field.size() << ", " << in_value.size() << std::endl;)
       strncpy(msg.fields[i].field, in_field.c_str(), FIELD_NAME_LENGTH - 1);
       msg.fields[i].field[FIELD_NAME_LENGTH - 1] = '\0';
       strncpy(msg.fields[i].value, in_value.c_str(), FIELD_VALUE_LENGTH - 1);
@@ -141,7 +167,7 @@ namespace WorkQStream
       i++;
     }
 
-    MESSAGE_QUEUED_COUNT++;
+    MESSAGE_QUEUED_COUNT.fetch_add(1, std::memory_order_relaxed);
     msg_queue.push(msg);
   }
 
@@ -171,19 +197,17 @@ namespace WorkQStream
     co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
     if (ec)
     {
-      m_is_connected = 0;
-      std::cout << make_ops_error(
-                       "PING", "(n/a)",
-                       "(n/a)", "(n/a)",
-                       ec.message(),
-                       "Check Redis connectivity and authentication")
-                << std::endl;
-      D(std::cout << "PING unsuccessful\n";)
+      m_is_connected.store(false);
+      mt_logging::logger().log(
+          {REDIS_STREAM_PRODUCER_LOGFILE,
+           make_ops_error(
+               "PING", "(n/a)",
+               "(n/a)", "(n/a)",
+               ec.message(),
+               "Check Redis connectivity and authentication"),
+           std::ios::app,
+           true});
       co_return; // Connection lost, break so we can exit function and try reconnect to redis.
-    }
-    else
-    {
-      D(std::cout << "PING successful\n";)
     }
 
     // ------------------------------------------------------------
@@ -193,8 +217,11 @@ namespace WorkQStream
     {
       for (const auto &stream : cfg.streams)
       {
-
-        std::cout << "Ensuring group '" << groupName << "' exists on stream '" << stream << "'\n";
+        mt_logging::logger().log(
+            {REDIS_STREAM_PRODUCER_LOGFILE,
+             fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
+             std::ios::app,
+             true});
         redis::request req;
         req.push("XGROUP", "CREATE",
                  stream,
@@ -214,7 +241,6 @@ namespace WorkQStream
 
           if (msg.find("BUSYGROUP") == std::string::npos)
           {
-            std::cerr << "XGROUP CREATE failed: " << msg << "\n";
             throw std::runtime_error(
                 make_ops_error(
                     "XGROUP CREATE",
@@ -226,18 +252,18 @@ namespace WorkQStream
           }
           else
           {
-            std::cout << "Group already exists, continuing\n";
+            mt_logging::logger().log(
+                {REDIS_STREAM_PRODUCER_LOGFILE,
+                 "Group already exists, continuing",
+                 std::ios::app,
+                 true});
           }
-        }
-        else
-        {
-          std::cout << "Group created successfully\n";
         }
       }
     }
 
-    m_is_connected = 1;
-    m_reconnect_count = 0; // reset
+    m_is_connected.store(true);
+    m_reconnect_count.store(false); // reset
     for (boost::system::error_code ec;;)
     {
       std::vector<ProduceMessage> batch;
@@ -247,7 +273,7 @@ namespace WorkQStream
         if (batch.size() < BATCH_SIZE)
         {
           batch.push_back(msg);
-          MESSAGE_COUNT++;
+          MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
         }
         else
         {
@@ -258,7 +284,6 @@ namespace WorkQStream
 
       if (!batch.empty())
       {
-        D(std::cout << "Amount batched " << batch.size() << std::endl;)
         for (const auto &m : batch)
         {
           redis::request req;
@@ -270,34 +295,35 @@ namespace WorkQStream
 
           if (ec)
           {
-            std::cout << "Perform a full reconnect to redis. Reason for error: "
-                      << make_ops_error(
-                             "XADD", m.channel,
-                             "(n/a)", "(n/a)",
-                             ec.message(),
-                             "Check Redis connectivity and authentication")
-                      << std::endl;
+            mt_logging::logger().log(
+                {REDIS_STREAM_PRODUCER_LOGFILE,
+                 fmt::format(
+                     "Perform a full reconnect to redis. Reason for error: {}",
+                     make_ops_error(
+                         "XADD", m.channel,
+                         "(n/a)", "(n/a)",
+                         ec.message(),
+                         "Check Redis connectivity and authentication")),
+                 std::ios::app,
+                 true});
 
             for (const auto &m : batch)
             {
               msg_queue.push(m);
-              MESSAGE_COUNT--;
+              MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
             }
 
             co_return; // Connection lost, exit function and try reconnect to redis.
           }
 
-          MESSAGE_SUCCESS_COUNT++;
+          MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
 
           std::string XID = std::get<0>(resp).value();
-          D(std::cout
-              << "Redis Produce: " << " batch size: " << batch.size() << ". "
-              << MESSAGE_QUEUED_COUNT << " queued, "
-              << MESSAGE_COUNT << " sent." << std::endl;)
-          std::cout << std::right << std::setw(6)
-              << MESSAGE_SUCCESS_COUNT << " produced. "
-              << "XADD ID: " << XID << " "
-              << std::endl;
+          mt_logging::logger().log(
+              {REDIS_STREAM_PRODUCER_LOGFILE,
+               fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
+               std::ios::app,
+               true});
         }
       }
       else
@@ -316,7 +342,6 @@ namespace WorkQStream
     cfg.password = REDIS_PASSWORD;
     if (std::string(REDIS_USE_SSL) == "on")
     {
-      std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
       // DONOT disable health check
     }
@@ -328,7 +353,7 @@ namespace WorkQStream
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
-          m_signal_status = 1;
+          m_signal_status.store(true);
         });
 
     for (;;)
@@ -358,27 +383,35 @@ namespace WorkQStream
       }
       catch (const std::exception &e)
       {
-        std::cerr << "Redis Produce error: " << e.what() << std::endl;
+        mt_logging::logger().log(
+            {REDIS_STREAM_PRODUCER_LOGFILE,
+             fmt::format("Redis Produce error: {}", e.what()),
+             std::ios::app,
+             true});
       }
 
       // Delay before reconnecting
-      m_reconnect_count++;
-      std::cout << "Producer process messages exited " << m_reconnect_count << " times, reconnecting in "
-                << CONNECTION_RETRY_DELAY << " second..." << std::endl;
+      m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
+      mt_logging::logger().log(
+          {REDIS_STREAM_PRODUCER_LOGFILE,
+           fmt::format("Producer process messages exited {} times, reconnecting in {} seconds...",
+                       m_reconnect_count.load(),
+                       CONNECTION_RETRY_DELAY),
+           std::ios::app,
+           true});
 
       m_conn->cancel();
 
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
-      D(std::cout << "Timer done." << std::endl;)
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
-      if (m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
+      if (m_reconnect_count.load() >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
     }
-    m_signal_status = 1;
+    m_signal_status.store(true);
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
