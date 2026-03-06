@@ -20,7 +20,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_WORKQ_TESTS=ON -DCMAKE_INSTALL_PREFIX=/
 cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_WORKQ_TESTS=ON -DCMAKE_INSTALL_PREFIX=/usr/local -G "Unix Makefiles" . -B ./build
 cmake --build build --target all
 
-cmake -DCMAKE_BUILD_TYPE=ValgrindDebug -DBUILD_WORKQ_TESTS=ON -DCMAKE_INSTALL_PREFIX=/usr/local -G "Unix Makefiles" . -B ./build
+cmake -DCMAKE_BUILD_TYPE=ValgrindDebug -DBUILD_WORKQ_TESTS=ON -DCMAKE_INSTALL_PREFIX=/usr/local -G "Unix Makefiles" . -B ./build/rel
 
 ```
 
