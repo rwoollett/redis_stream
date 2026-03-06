@@ -314,6 +314,7 @@ namespace WorkQStream
       {
         asio::steady_timer timer(co_await asio::this_coro::executor,
                                  std::chrono::milliseconds(100)); //.async_wait(asio::use_awaitable);
+        std::cerr << ".";
         ec.clear();
         co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
 

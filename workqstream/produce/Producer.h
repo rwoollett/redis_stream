@@ -66,12 +66,72 @@ namespace WorkQStream
     FieldValue fields[MAX_FIELDS];
     int field_count;
   };
+  
+  template <typename T, size_t Capacity>
+  class BlockingSPSCQueue
+  {
+  public:
+    BlockingSPSCQueue() : m_shutdown(false) {}
+
+    // Non-blocking push (same as your current queue)
+    bool push(const T &item)
+    {
+      bool ok = m_queue.push(item);
+      if (ok)
+      {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_cv.notify_one();
+      }
+      return ok;
+    }
+
+    // Non-blocking pop (same as your current queue)
+    bool pop(T &out)
+    {
+      return m_queue.pop(out);
+    }
+
+    // Blocking pop: waits until item available or shutdown
+    bool blocking_pop(T &out)
+    {
+      std::unique_lock<std::mutex> lock(m_mtx);
+
+      m_cv.wait(lock, [&]
+                { return m_shutdown || !m_queue.empty(); });
+
+      if (m_shutdown)
+        return false;
+
+      return m_queue.pop(out);
+    }
+
+    // Signal shutdown and wake any waiting consumer
+    void shutdown()
+    {
+      {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_shutdown = true;
+      }
+      m_cv.notify_all();
+    }
+
+    bool empty() const
+    {
+      return m_queue.empty();
+    }
+
+  private:
+    boost::lockfree::spsc_queue<T, boost::lockfree::capacity<Capacity>> m_queue;
+    mutable std::mutex m_mtx;
+    std::condition_variable m_cv;
+    bool m_shutdown;
+  };
 
   class Producer
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    boost::lockfree::spsc_queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    BlockingSPSCQueue<ProduceMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
     std::atomic<bool> m_shutting_down;
