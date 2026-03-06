@@ -131,7 +131,8 @@ namespace WorkQStream
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    BlockingSPSCQueue<ProduceMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
+    boost::lockfree::spsc_queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue;
+    //BlockingSPSCQueue<ProduceMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
     std::atomic<bool> m_shutting_down;

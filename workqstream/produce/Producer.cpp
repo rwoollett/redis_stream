@@ -111,8 +111,11 @@ namespace WorkQStream
 
     if (m_conn)
     {
-      m_conn->cancel();
+      // Schedule cancel on the io_context thread
+      boost::asio::post(m_ioc, [conn = m_conn]
+                        { conn->cancel(); });
     }
+
     msg_queue.push(ProduceMessage{}); // dummy wake-up
 
     if (m_sender_thread.joinable())
