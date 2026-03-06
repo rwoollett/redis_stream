@@ -3,6 +3,7 @@ project(WorkQStream VERSION 1.0
         DESCRIPTION "Redis stream for work queue produce and consume with ack message"
         LANGUAGES C CXX)
 
+
   # Add a custom build type for Valgrind/Helgrind
   set(CMAKE_CONFIGURATION_TYPES "Debug;Release;ValgrindDebug" CACHE STRING "" FORCE)
 
@@ -17,6 +18,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 add_compile_definitions(HAVE_ASIO)
+message(STATUS "Definitions for this target: ${CMAKE_CXX_COMPILE_DEFINITIONS}")
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_DEBUG_LIBS OFF)

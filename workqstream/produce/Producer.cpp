@@ -82,6 +82,7 @@ namespace WorkQStream
 
     m_is_connected.store(false);
     m_signal_status.store(false);
+    m_shutting_down.store(false);
     D(mt_logging::logger().log(
         {REDIS_STREAM_PRODUCER_LOGFILE,
          "Producer created",
@@ -104,45 +105,23 @@ namespace WorkQStream
     m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });
   }
-
   Producer::~Producer()
   {
-    ProduceMessage msg;
-    int countMsg = 0;
-    while (!msg_queue.empty())
-    {
-      if (!m_is_connected.load())
-      {
-        msg_queue.pop(msg);
-        countMsg++;
-      }
-      else
-      {
-        D(mt_logging::logger().log(
-            {REDIS_STREAM_PRODUCER_LOGFILE,
-             "Redis Produceer destructor found msg.",
-             std::ios::app,
-             true});)
-        std::this_thread::sleep_for(std::chrono::milliseconds(400));
-      }
-    };
-    if (!m_is_connected.load())
-    {
-      mt_logging::logger().log(
-          {REDIS_STREAM_PRODUCER_LOGFILE,
-           fmt::format("Redis Produceer found not connected to redis: {} messages deleted", countMsg),
-           std::ios::app,
-           true});
-    }
+    m_shutting_down.store(true);
 
-    m_ioc.stop();
+    if (m_conn)
+    {
+      m_conn->cancel();
+    }
+    msg_queue.push(ProduceMessage{}); // dummy wake-up
+
     if (m_sender_thread.joinable())
       m_sender_thread.join();
-    mt_logging::logger().log(
-        {REDIS_STREAM_PRODUCER_LOGFILE,
-         "Redis Producer destroyed",
-         std::ios::app,
-         true});
+
+    mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
+                              "Redis Producer destroyed",
+                              std::ios::app,
+                              true});
   }
 
   void Producer::enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields)
@@ -266,6 +245,11 @@ namespace WorkQStream
     m_reconnect_count.store(false); // reset
     for (boost::system::error_code ec;;)
     {
+      if (m_shutting_down.load())
+      {
+        break;
+      }
+
       std::vector<ProduceMessage> batch;
       ProduceMessage msg;
       while (msg_queue.pop(msg))
@@ -328,8 +312,31 @@ namespace WorkQStream
       }
       else
       {
-        co_await asio::steady_timer(co_await asio::this_coro::executor, std::chrono::milliseconds(100)).async_wait(asio::use_awaitable);
+        asio::steady_timer timer(co_await asio::this_coro::executor,
+                                 std::chrono::milliseconds(100)); //.async_wait(asio::use_awaitable);
+        ec.clear();
+        co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+
+        if (m_shutting_down.load() || ec == asio::error::operation_aborted)
+        {
+          break; // will then hit your “drop remaining messages” code
+        }
       }
+    }
+    // Drop all remaining messages on shutdown
+    if (m_shutting_down.load())
+    {
+      ProduceMessage leftover;
+      int dropped = 0;
+      while (msg_queue.pop(leftover))
+      {
+        dropped++;
+      }
+
+      mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
+                                fmt::format("Producer shutdown: dropped {} pending messages", dropped),
+                                std::ios::app,
+                                true});
     }
   }
 
@@ -358,6 +365,10 @@ namespace WorkQStream
 
     for (;;)
     {
+      if (m_shutting_down.load())
+      {
+        co_return;
+      }
       if (std::string(REDIS_USE_SSL) == "on")
       {
         asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
@@ -388,6 +399,11 @@ namespace WorkQStream
              fmt::format("Redis Produce error: {}", e.what()),
              std::ios::app,
              true});
+      }
+
+      if (m_shutting_down.load())
+      {
+        co_return;
       }
 
       // Delay before reconnecting

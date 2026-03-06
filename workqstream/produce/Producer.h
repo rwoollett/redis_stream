@@ -74,6 +74,7 @@ namespace WorkQStream
     boost::lockfree::spsc_queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
+    std::atomic<bool> m_shutting_down;
     std::atomic<std::sig_atomic_t> m_reconnect_count;
     std::thread m_sender_thread;
     GroupConfigMap m_group_config{};

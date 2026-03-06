@@ -57,7 +57,7 @@ namespace WorkQStream
         std::cout << "    " << k << " = " << v << "\n";
 
       std::cout << std::endl;
-      D(std::cout << "******************************************************#\n\n";)
+      D(std::cout << "*****************************************************#\n\n";)
     }
 
     virtual void on_subscribe() {
