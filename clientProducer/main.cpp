@@ -93,7 +93,7 @@ int main(int argc, char **argv)
         doWork("ttt_player_Move");
       }
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   }
   catch (const std::exception &e)
