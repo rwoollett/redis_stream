@@ -42,8 +42,15 @@
 }
 
 {
-  MTLog_Stop
+   MTLog_Stop
    Helgrind:Misc
    obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
    fun:_ZN10mt_logging12LoggerThread4stopEv*
+}
+
+{
+   BlockingSPSCQueue_Shutdown
+   Helgrind:Misc
+   obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
+   fun:_ZN11WorkQStream17BlockingSPSCQueueINS_14ProduceMessageELm128EE8shutdownEv*
 }

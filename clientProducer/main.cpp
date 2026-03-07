@@ -15,10 +15,11 @@ int main(int argc, char **argv)
   const char *redis_host = std::getenv("REDIS_HOST");
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
+  const char *REDIS_STREAM_PRODUCER_LOGFILE = std::getenv("REDIS_STREAM_PRODUCER_LOGFILE");
 
-  if (!(redis_host && redis_port && redis_password))
+  if (!(redis_host && redis_port && redis_password && REDIS_STREAM_PRODUCER_LOGFILE))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_STREAM_PRODUCER_LOGFILE, REDIS_HOST, REDIS_PORT or REDIS_PASSWORD are not set." << std::endl;
     exit(1);
   }
   if (argc > 1)
@@ -26,8 +27,8 @@ int main(int argc, char **argv)
     std::cout << "Using command line arguments as channels to publish messages." << std::endl;
   }
   mt_logging::logger().log(
-      {"output_publ.log",
-       "output_publ.log",
+      {REDIS_STREAM_PRODUCER_LOGFILE,
+       REDIS_STREAM_PRODUCER_LOGFILE,
        std::ios::out,
        true});
 
@@ -39,18 +40,18 @@ int main(int argc, char **argv)
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     // Log and create ClientProducer log
     mt_logging::logger().log(
-        {"output_publ.log",
+        {REDIS_STREAM_PRODUCER_LOGFILE,
          fmt::format("Redis producer connected: {}", (producer.is_redis_connected() ? "true" : "false")),
          std::ios::app,
          true});
 
-    auto doWork = [&producer](const std::string &channel,
+    auto doWork = [&producer, REDIS_STREAM_PRODUCER_LOGFILE](const std::string &channel,
                               const std::vector<std::pair<std::string, std::string>> &fields = {{"postid", "c1234"}})
     {
       if (!producer.is_redis_connected())
       {
         mt_logging::logger().log(
-            {"output_publ.log",
+            {REDIS_STREAM_PRODUCER_LOGFILE,
              fmt::format("Redis connection failed, cannot publish message to channel: {}", channel),
              std::ios::app,
              true});
@@ -60,7 +61,7 @@ int main(int argc, char **argv)
         producer.enqueue_message(channel, fields);
 
         D(mt_logging::logger().log(
-            {"output_publ.log",
+            {REDIS_STREAM_PRODUCER_LOGFILE,
              fmt::format("Published message to channel: {} with message {}", channel, fmt::join(fields, ", ")),
              std::ios::app,
              true});)
@@ -75,7 +76,6 @@ int main(int argc, char **argv)
 
       if (producer.is_signal_stopped())
       {
-        //std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
         continue;
       }

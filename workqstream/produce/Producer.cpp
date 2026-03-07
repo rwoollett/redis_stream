@@ -108,7 +108,6 @@ namespace WorkQStream
   Producer::~Producer()
   {
     m_shutting_down.store(true);
-
     if (m_conn)
     {
       // Schedule cancel on the io_context thread
@@ -116,7 +115,10 @@ namespace WorkQStream
                         { conn->cancel(); });
     }
 
-    msg_queue.push(ProduceMessage{}); // dummy wake-up
+    boost::asio::post(m_ioc, [this]
+                      { msg_queue.shutdown(); });
+
+    msg_queue.push(ProduceMessage{}); // dummy wake-up on lockfree queue 
 
     if (m_sender_thread.joinable())
       m_sender_thread.join();
@@ -249,82 +251,69 @@ namespace WorkQStream
     for (boost::system::error_code ec;;)
     {
       if (m_shutting_down.load())
-      {
         break;
-      }
 
       std::vector<ProduceMessage> batch;
       ProduceMessage msg;
-      while (msg_queue.pop(msg))
+      while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg) )
       {
-        if (batch.size() < BATCH_SIZE)
-        {
-          batch.push_back(msg);
-          MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
-        }
-        else
-        {
-          msg_queue.push(msg);
-          break; // exit while
-        }
+        if (m_shutting_down.load())
+          break;
+        batch.push_back(msg);
+        MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
       }
 
-      if (!batch.empty())
+      if (m_shutting_down.load())
+        break;
+
+      if (batch.empty())
+        continue;
+
+      for (const auto &m : batch)
       {
-        for (const auto &m : batch)
+        redis::request req;
+        push_xadd(req, m.channel, m);
+
+        redis::response<std::string> resp;
+        req.get_config().cancel_if_not_connected = true;
+        co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+
+        if (ec)
         {
-          redis::request req;
-          push_xadd(req, m.channel, m);
-
-          redis::response<std::string> resp;
-          req.get_config().cancel_if_not_connected = true;
-          co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-
-          if (ec)
-          {
-            mt_logging::logger().log(
-                {REDIS_STREAM_PRODUCER_LOGFILE,
-                 fmt::format(
-                     "Perform a full reconnect to redis. Reason for error: {}",
-                     make_ops_error(
-                         "XADD", m.channel,
-                         "(n/a)", "(n/a)",
-                         ec.message(),
-                         "Check Redis connectivity and authentication")),
-                 std::ios::app,
-                 true});
-
-            for (const auto &m : batch)
-            {
-              msg_queue.push(m);
-              MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-            }
-
-            co_return; // Connection lost, exit function and try reconnect to redis.
-          }
-
-          MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
-
-          std::string XID = std::get<0>(resp).value();
           mt_logging::logger().log(
               {REDIS_STREAM_PRODUCER_LOGFILE,
-               fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
+               fmt::format(
+                   "Perform a full reconnect to redis. Reason for error: {}",
+                   make_ops_error(
+                       "XADD", m.channel,
+                       "(n/a)", "(n/a)",
+                       ec.message(),
+                       "Check Redis connectivity and authentication")),
                std::ios::app,
                true});
-        }
-      }
-      else
-      {
-        asio::steady_timer timer(co_await asio::this_coro::executor,
-                                 std::chrono::milliseconds(100)); //.async_wait(asio::use_awaitable);
-        std::cerr << ".";
-        ec.clear();
-        co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
 
-        if (m_shutting_down.load() || ec == asio::error::operation_aborted)
-        {
-          break; // will then hit your “drop remaining messages” code
+          for (const auto &m : batch)
+          {
+            msg_queue.push(m);
+            MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
+          }
+
+          co_return; // Connection lost, exit function and try reconnect to redis.
         }
+
+        MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
+
+        std::string XID = std::get<0>(resp).value();
+        D(mt_logging::logger().log(
+            {REDIS_STREAM_PRODUCER_LOGFILE,
+             fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
+             std::ios::app,
+             true});)
+        mt_logging::logger().log(
+            {REDIS_STREAM_PRODUCER_LOGFILE,
+             fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
+             std::ios::app,
+             true});
       }
     }
     // Drop all remaining messages on shutdown

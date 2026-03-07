@@ -46,7 +46,7 @@ namespace WorkQStream
   static std::atomic<int> MESSAGE_COUNT = 0;
   static std::atomic<int> MESSAGE_SUCCESS_COUNT = 0;
 
-  constexpr int BATCH_SIZE = 10;
+  constexpr int BATCH_SIZE = 1;
   constexpr int QUEUE_LENGTH = 128;
   constexpr int MESSAGE_LENGTH = 256;
   constexpr int CHANNEL_LENGTH = 64;
@@ -131,8 +131,7 @@ namespace WorkQStream
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    boost::lockfree::spsc_queue<ProduceMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue;
-    //BlockingSPSCQueue<ProduceMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
+    BlockingSPSCQueue<ProduceMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
     std::atomic<bool> m_shutting_down;
