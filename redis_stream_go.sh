@@ -38,11 +38,14 @@ fi
 . ./set_env.sh
 
 
+export WORKER_RECOVER_PENDING=on
+export REDIS_STREAM_CONSUMER_LOGFILE=output_rs_consumer_recovery.log
 (./$cmakedir/clientRedis/ClientRedis worker_$$_recovery > output_scrb_$$_recovery.log 2>&1 &)
 count=1
 while [ $count -le 3 ]; do
   sleep .4
   export WORKER_RECOVER_PENDING=off
+  export REDIS_STREAM_CONSUMER_LOGFILE=output_rs_consumer_$count.log
   (./$cmakedir/clientRedis/ClientRedis worker_$$_$count > output_scrb_$$_$count.log 2>&1 &)
   ((count++))
 done

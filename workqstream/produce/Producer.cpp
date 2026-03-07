@@ -247,7 +247,7 @@ namespace WorkQStream
     }
 
     m_is_connected.store(true);
-    m_reconnect_count.store(false); // reset
+    m_reconnect_count.store(0); // reset
     for (boost::system::error_code ec;;)
     {
       if (m_shutting_down.load())

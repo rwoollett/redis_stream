@@ -24,7 +24,7 @@ public:
   };
   ~AwakenerWaitable() 
   {
-    std::cout << "Size awakener work queue " << m_work_queue.size() << std::endl;
+    std::cerr << "Size awakener work queue " << m_work_queue.size() << std::endl;
   };
 
   // This function will block until there is at least one message to process.
@@ -66,7 +66,6 @@ public:
     for (auto& [k, v] : fields)
         work_item.fields.emplace(k, v);
 
-    D(std::cout << "AwakenerWaitable::broadcast_single\n";)
     {
       std::unique_lock<std::mutex> cl(m_class_lock);
       m_work_queue.push(work_item);
@@ -78,7 +77,6 @@ public:
 
   virtual void stop()
   {
-    D(std::cout << "AwakenerWaitable::stop\n";)
     {
       std::unique_lock<std::mutex> cl(m_class_lock);
       shall_stop_awaken = true;

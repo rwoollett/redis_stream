@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <iomanip>
+#include <mtlog/mt_log.hpp>
 
 #ifdef HAVE_ASIO
 
@@ -18,6 +19,7 @@ namespace WorkQStream
 
   static const char *WORKER_GROUP = std::getenv("WORKER_GROUP");
   static const char *WORKER_RECOVER_PENDING = std::getenv("WORKER_RECOVER_PENDING");
+  static const char *REDIS_STREAM_CONSUMER_LOGFILE = std::getenv("REDIS_STREAM_CONSUMER_LOGFILE");
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
@@ -29,6 +31,18 @@ namespace WorkQStream
   static const int TRIM_STREAM_SIZE = 50000;
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
+
+  void Awakener::broadcast_single(
+      std::string stream_name,
+      std::string message_id,
+      std::unordered_map<std::string, std::string> fields)
+  {
+    mt_logging::logger().log(
+        {REDIS_STREAM_CONSUMER_LOGFILE,
+         fmt::format("Broadcast work item message \n STREAM: {}\n    ID: {}\n", stream_name, message_id, fmt::join(fields, ", ")),
+         std::ios::app,
+         true});
+  }
 
   std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
   {
@@ -60,7 +74,11 @@ namespace WorkQStream
     }
     catch (const std::exception &e)
     {
-      std::cerr << "Consumer::load certiciates " << e.what() << std::endl;
+      mt_logging::logger().log(
+          {REDIS_STREAM_CONSUMER_LOGFILE,
+           fmt::format("Consumer::load certiciates {}", e.what()),
+           std::ios::app,
+           true});
     }
   }
 
@@ -69,20 +87,28 @@ namespace WorkQStream
       Awakener &awakener) : m_ioc{3},
                             m_conn_read{},
                             m_conn_write{},
-                            m_signal_status{0},
-                            m_cstoken_message_count{0},
-                            m_is_connected{0},
                             m_worker_id(workerId),
                             m_group_config(load_group_config()),
                             m_valid_streams{}
   {
-    D(std::cerr << "Consumer created\n";)
-    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
+    if (REDIS_STREAM_CONSUMER_LOGFILE == nullptr ||
+        REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
         REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
         WORKER_RECOVER_PENDING == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, WORKER_RECOVER_PENDING and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables REDIS_STREAM_CONSUMER_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, WORKER_RECOVER_PENDING and REDIS_USE_SSL must be set.");
     }
+
+    m_is_connected.store(false);
+    m_signal_status.store(false);
+    m_cstoken_message_count.store(0);
+
+    D(mt_logging::logger().log(
+        {REDIS_STREAM_CONSUMER_LOGFILE,
+         "Consumer created",
+         std::ios::app,
+         true});)
+
     for (const auto &s : get_worker_group(m_group_config).streams)
     {
       if (s.empty())
@@ -100,17 +126,27 @@ namespace WorkQStream
 
   Consumer::~Consumer()
   {
-    std::cerr << "Consumer destroyed\n";
     m_ioc.stop();
+
     if (m_receiver_thread.joinable())
       m_receiver_thread.join();
+
+    mt_logging::logger().log({REDIS_STREAM_CONSUMER_LOGFILE,
+                              "Redis Consumer destroyed",
+                              std::ios::app,
+                              true});
   }
 
   asio::awaitable<void> Consumer::ensure_group_exists()
   {
     for (const auto &stream : m_valid_streams)
     {
-      std::cerr << "Ensuring group '" << WORKER_GROUP << "' exists on stream '" << stream << "'\n";
+      mt_logging::logger().log(
+          {REDIS_STREAM_CONSUMER_LOGFILE,
+           fmt::format("Ensuring group {} exists on stream {}", WORKER_GROUP, stream),
+           std::ios::app,
+           true});
+
       redis::request req;
       req.push("XGROUP", "CREATE",
                stream,
@@ -122,14 +158,11 @@ namespace WorkQStream
       redis::response<std::string> resp;
       boost::system::error_code ec;
       co_await m_conn_write->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-      // std::cerr << "what ec\n";
-
       if (ec)
       {
         std::string msg = ec.message();
         if (msg.find("BUSYGROUP") == std::string::npos)
         {
-          std::cerr << "XGROUP CREATE failed: " << msg << "\n";
           throw std::runtime_error(
               make_ops_error(
                   "XGROUP CREATE",
@@ -141,12 +174,12 @@ namespace WorkQStream
         }
         else
         {
-          std::cerr << "Group already exists, continuing\n";
+          mt_logging::logger().log(
+              {REDIS_STREAM_CONSUMER_LOGFILE,
+               "Group already exists, continuing",
+               std::ios::app,
+               true});
         }
-      }
-      else
-      {
-        std::cerr << "Group created successfully\n";
       }
     }
   }
@@ -157,13 +190,13 @@ namespace WorkQStream
 
     for (auto &item : dispatch_items)
     {
-      m_cstoken_message_count++;
+      m_cstoken_message_count.fetch_add(1, std::memory_order_relaxed);
 
-      std::cout << std::right << std::setw(6)
-                << m_cstoken_message_count << " consumed. "
-                << "XADD ID: " << item.id << " "
-                << std::endl;
-      //      std::cout << "DISPATCH work item:   [STREAM " << item.stream << "      ID " << item.id << "]  WORKER GROUP " << WORKER_GROUP << " Fields: " << std::endl;
+      mt_logging::logger().log(
+          {REDIS_STREAM_CONSUMER_LOGFILE,
+           fmt::format(" {} consumed. XID {}", m_cstoken_message_count.load(), item.id),
+           std::ios::app,
+           true});
 
       awakener.broadcast_single(
           std::string(item.stream),       // service name
@@ -200,23 +233,38 @@ namespace WorkQStream
     redis::generic_response resp;
 
     req.get_config().cancel_if_not_connected = false;
-    m_is_connected = 1;
-    m_reconnect_count = 0; // reset
+    m_is_connected.store(true);
+    m_reconnect_count.store(0); // reset
 
     for (boost::system::error_code ec;;)
     {
-      D(std::cout << "- Consumer::receiver blocking with 5000 until message response" << std::endl;)
       co_await m_conn_read->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-      // std::cerr << "what ec\n";
       if (ec)
       {
         if (ec == asio::error::operation_aborted)
         {
-          std::cout << "- Consumer::receiver operation_aborted " << ec.message() << " " << ec.value() << std::endl;
+          mt_logging::logger().log(
+              {REDIS_STREAM_CONSUMER_LOGFILE,
+               fmt::format(
+                   "- Consumer::receiver operation_aborted {} {}", ec.message(), ec.value()),
+               std::ios::app,
+               true});
+
           co_return; // true; // false; // do not reconnect this ec
         }
 
-        D(std::cout << "Perform a full reconnect to redis. Reason for error: " << std::endl;)
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             fmt::format(
+                 "Perform a full reconnect to redis. Reason for error: {}",
+                 make_ops_error(
+                     "XREADGROUP", "(n/a)",
+                     WORKER_GROUP, m_worker_id,
+                     ec.message(),
+                     "Check Redis connectivity and authentication")),
+             std::ios::app,
+             true});
+
         throw std::runtime_error(
             make_ops_error(
                 "XREADGROUP", "(n/a)",
@@ -241,30 +289,31 @@ namespace WorkQStream
     cfg.password = REDIS_PASSWORD;
     if (std::string(REDIS_USE_SSL) == "on")
     {
-      std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
       // disable health check:
       cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
     }
-    std::cout << "Worker id: " << m_worker_id << std::endl;
+
+    mt_logging::logger().log(
+        {REDIS_STREAM_CONSUMER_LOGFILE,
+         fmt::format("Worker id:  {}", m_worker_id),
+         std::ios::app,
+         true});
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
 #endif
-    D(std::cout << "- Consumer co_main signal set" << std::endl;)
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
-          D(std::cout << "- Consumer is signaled" << std::endl;)
-          m_signal_status = 1;
+          m_signal_status.store(true);
           awakener.stop();
         });
 
     // bool should_reconnect = false;
     for (;;)
     {
-      D(std::cerr << "WorkQStream consumer co_main: create connections" << std::endl;)
       if (std::string(REDIS_USE_SSL) == "on")
       {
         asio::ssl::context ssl_ctx_read{asio::ssl::context::tlsv12_client};
@@ -284,20 +333,27 @@ namespace WorkQStream
         m_conn_write = std::make_shared<redis::connection>(ex);
       }
 
-      D(std::cerr << "WorkQStream consumer co_main: run connections" << std::endl;)
       m_conn_read->async_run(
           cfg,
           redis::logger{redis::logger::level::err},
           [self = m_conn_read](boost::system::error_code ec)
           {
-            std::cerr << "[m_conn_read async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
+            mt_logging::logger().log(
+                {REDIS_STREAM_CONSUMER_LOGFILE,
+                 fmt::format("[m_conn_read async_run] ended: {}", ec.message()),
+                 std::ios::app,
+                 true});
           });
       m_conn_write->async_run(
           cfg,
           redis::logger{redis::logger::level::err},
           [self = m_conn_write](boost::system::error_code ec)
           {
-            std::cerr << "[m_conn_write async_run] ended: " << ec.message() << " " << ec.value() << std::endl;
+            mt_logging::logger().log(
+                {REDIS_STREAM_CONSUMER_LOGFILE,
+                 fmt::format("[m_conn_write async_run] ended: {}", ec.message()),
+                 std::ios::app,
+                 true});
           });
 
       if (std::string(WORKER_RECOVER_PENDING) == "on")
@@ -319,34 +375,39 @@ namespace WorkQStream
 
       try
       {
-        D(std::cerr << "WorkQStream consumer co_main: ensure_group_exists" << std::endl;)
         co_await ensure_group_exists();
-        D(std::cerr << "WorkQStream consumer co_main: run receiver" << std::endl;)
         co_await receiver(awakener);
       }
       catch (const std::exception &e)
       {
-        std::cerr << "WorkQStream consumer co_main error: " << e.what() << std::endl;
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             fmt::format("Redis consume co_main error: {}", e.what()),
+             std::ios::app,
+             true});
       }
 
-      m_is_connected = 0;
-      m_reconnect_count++;
-      std::cerr << "Receiver exited " << m_reconnect_count << " times, reconnecting in " << CONNECTION_RETRY_DELAY << " second..." << std::endl;
+      m_is_connected.store(false);
+      m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
 
-      // m_conn_read->cancel();
-      // m_conn_write->cancel();
+      mt_logging::logger().log(
+          {REDIS_STREAM_CONSUMER_LOGFILE,
+           fmt::format("Consumer receiver exited {} times, reconnecting in {} seconds...",
+                       m_reconnect_count.load(),
+                       CONNECTION_RETRY_DELAY),
+           std::ios::app,
+           true});
 
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
-      D(std::cerr << "Timer done." << std::endl;)
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
-      if (m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
+      if (m_reconnect_count.load() >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
     }
-    m_signal_status = 1;
+    m_signal_status.store(true);
     awakener.stop();
   }
 
@@ -401,7 +462,12 @@ namespace WorkQStream
   {
     redis::request req;
     req.push("XACK", stream, WORKER_GROUP, id);
-    std::cout << "XACK'd work item:     [STREAM " << stream << "      ID " << id << "]  WORKER GROUP " << WORKER_GROUP << std::endl;
+    mt_logging::logger().log(
+        {REDIS_STREAM_CONSUMER_LOGFILE,
+         fmt::format("XACK'd work item:     [STREAM {}      ID {}]  WORKER GROUP {}", stream, id, WORKER_GROUP),
+         std::ios::app,
+         true});
+
     co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
   }
 
@@ -410,7 +476,12 @@ namespace WorkQStream
   {
     redis::request req;
     push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
-    std::cout << "DLQ'd work item:      [STREAM " << std::string(stream) + ".DLQ" << "  ID " << id << "]  WORKER GROUP " << WORKER_GROUP << std::endl;
+    mt_logging::logger().log(
+        {REDIS_STREAM_CONSUMER_LOGFILE,
+         fmt::format("DLQ'd work item:      [STREAM {}      ID {}]  WORKER GROUP {}", std::string(stream) + ".DLQ", id, WORKER_GROUP),
+         std::ios::app,
+         true});
+
     co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
 
     // Remove from PEL
@@ -426,7 +497,11 @@ namespace WorkQStream
       try
       {
         // 1. Get up to 10 pending messages
-        std::cout << "XPENDING data         [STREAM " << stream << "      WORKER GROUP " << std::string(WORKER_GROUP) << "]" << std::endl;
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             fmt::format("XPENDING data         [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
+             std::ios::app,
+             true});
 
         redis::request req;
         req.push("XPENDING", stream, std::string(WORKER_GROUP), "-", "+", "10");
@@ -434,13 +509,6 @@ namespace WorkQStream
         redis::generic_response resp;
         co_await m_conn_write->async_exec(req, resp, asio::use_awaitable);
         auto pendings = parse_xpending(resp);
-
-        D(for (auto &p : pendings) {
-          std::cout << " - Pending ID: " << p.id
-                    << " consumer=" << p.consumer
-                    << " idle=" << p.idle_ms
-                    << " deliveries=" << p.delivery_count << "\n";
-        })
 
         if (pendings.empty())
         {
@@ -450,6 +518,11 @@ namespace WorkQStream
 
         for (auto &p : pendings)
         {
+          mt_logging::logger().log(
+              {REDIS_STREAM_CONSUMER_LOGFILE,
+               fmt::format(" - Pending ID: {} consumer={} idle={} deliveries={}", p.id, p.consumer, p.idle_ms, p.delivery_count),
+               std::ios::app,
+               true});
           // Optional: DLQ logic
           if (p.delivery_count > 5)
           {
@@ -475,10 +548,11 @@ namespace WorkQStream
 
           for (auto &item : items)
           {
-            std::cout << "XCLAIMED message:     [STREAM " << item.stream << "      ID " << item.id << "]  Fields: ";
-            for (auto &[k, v] : item.fields)
-              std::cout << "  " << k << " = " << v;
-            std::cout << std::endl;
+            mt_logging::logger().log(
+                {REDIS_STREAM_CONSUMER_LOGFILE,
+                 fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
+                 std::ios::app,
+                 true});
 
             // 4. Push into your Awakener queue
             awakener.broadcast_single(
@@ -490,7 +564,11 @@ namespace WorkQStream
       }
       catch (std::exception &e)
       {
-        std::cerr << "XPENDING recovery     error: " << e.what() << "\n";
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             fmt::format("XPENDING recovery     error: {}", e.what()),
+             std::ios::app,
+             true});
       }
 
       // Sleep before next scan
@@ -507,14 +585,23 @@ namespace WorkQStream
       try
       {
         redis::request req;
-        std::cout << "XTRIM data            [STREAM " << stream << "      WORKER GROUP " << std::string(WORKER_GROUP) << "]" << std::endl;
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             fmt::format("XTRIM data            [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
+             std::ios::app,
+             true});
+
         req.push("XTRIM", stream, "MAXLEN", "~", std::to_string(TRIM_STREAM_SIZE));
 
         co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
       }
       catch (std::exception &e)
       {
-        std::cerr << "XTRIM recovery        error: " << e.what() << "\n";
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             fmt::format("XTRIM recovery        error: {}", e.what()),
+             std::ios::app,
+             true});
       }
       co_await asio::steady_timer(ex, std::chrono::seconds(TRIM_STREAM_DELAY)).async_wait(asio::use_awaitable);
     }

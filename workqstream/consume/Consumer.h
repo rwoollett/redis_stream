@@ -47,18 +47,7 @@ namespace WorkQStream
     virtual void broadcast_single(
         std::string stream_name,
         std::string message_id,
-        std::unordered_map<std::string, std::string> fields)
-    {
-      std::cout << "Awakener::broadcast_singles\n";
-      std::cout << "- Broadcast work item message\n";
-      std::cout << "STREAM: " << stream_name << "\n";
-      std::cout << "  ID: " << message_id << "\n";
-      for (auto &[k, v] : fields)
-        std::cout << "    " << k << " = " << v << "\n";
-
-      std::cout << std::endl;
-      D(std::cout << "*****************************************************#\n\n";)
-    }
+        std::unordered_map<std::string, std::string> fields);
 
     virtual void on_subscribe() {
       //  do nothing in base class
@@ -75,10 +64,10 @@ namespace WorkQStream
     std::shared_ptr<redis::connection> m_conn_read;
     std::shared_ptr<redis::connection> m_conn_write;
     std::thread m_receiver_thread;
-    volatile std::sig_atomic_t m_signal_status;
-    volatile std::sig_atomic_t m_is_connected;
-    int m_cstoken_message_count{0};
-    int m_reconnect_count{0};
+    std::atomic<bool> m_signal_status;
+    std::atomic<bool> m_is_connected;
+    std::atomic<std::sig_atomic_t> m_cstoken_message_count;
+    std::atomic<std::sig_atomic_t> m_reconnect_count;
     std::string m_worker_id;
     GroupConfigMap m_group_config{};
     std::unordered_set<std::string> m_valid_streams{};
@@ -90,8 +79,8 @@ namespace WorkQStream
     /// Deconstructor
     virtual ~Consumer();
 
-    virtual bool is_signal_stopped() { return (m_signal_status == 1); };
-    bool is_redis_connected() { return (m_is_connected == 1); };
+    virtual bool is_signal_stopped() { return (m_signal_status.load()); };
+    bool is_redis_connected() { return (m_is_connected.load()); };
     void xack_now(std::string stream, std::string id);
     void send_to_dlq_now(std::string stream, std::string id,
                          std::unordered_map<std::string, std::string> fields);
@@ -104,12 +93,11 @@ namespace WorkQStream
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
                                       const std::unordered_map<std::string, std::string> &fields);
 
-    // Timed routines co spawn in co_main                                      
+    // Timed routines co spawn in co_main
     asio::awaitable<void> recover_pending(std::string stream, Awakener &awakener);
     asio::awaitable<void> trim_stream(std::string stream);
-                                        
-    void read_stream(const redis::generic_response &resp, Awakener &awakener);
 
+    void read_stream(const redis::generic_response &resp, Awakener &awakener);
   };
 
 } /* namespace WorkQStream */

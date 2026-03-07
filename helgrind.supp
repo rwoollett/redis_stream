@@ -35,22 +35,52 @@
 }
 
 {
-   MTLog_Log
+   MTLog_Log_CVNotify
    Helgrind:Misc
    obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
    fun:_ZN10mt_logging12LoggerThread3logENS_6LogJobE*
 }
 
 {
-   MTLog_Stop
+   MTLog_Stop_CVNotify
    Helgrind:Misc
    obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
    fun:_ZN10mt_logging12LoggerThread4stopEv*
 }
 
 {
-   BlockingSPSCQueue_Shutdown
+   BlockingSPSCQueue_Shutdown_CVNotify
    Helgrind:Misc
    obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
    fun:_ZN11WorkQStream17BlockingSPSCQueueINS_14ProduceMessageELm128EE8shutdownEv*
+}
+
+{
+   AwakenerWaitable_Broadcast_Single_CVNotify
+   Helgrind:Misc
+   obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
+   fun:_ZN16AwakenerWaitable16broadcast_singleENSt7__cxx1112basic_string*
+}
+
+{
+   AwakenerWaitable_Stop_CVNotify
+   Helgrind:Misc
+   obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
+   fun:_ZN16AwakenerWaitable4stopE*
+}
+
+{
+   ASIO_SignalHandler_AwakenerWaitable_Stop_WaitBroadcast_CVNotify
+   Helgrind:Race
+   fun:boost_asio_signal_handler
+   obj:/usr/lib/x86_64-linux-gnu/libc.so.6
+   fun:__futex_abstimed_wait_common64
+   fun:__futex_abstimed_wait_common
+   fun:__futex_abstimed_wait_cancelable64
+   fun:__pthread_cond_wait_common
+   fun:pthread_cond_wait@@GLIBC_2.3.2
+   obj:/usr/libexec/valgrind/vgpreload_helgrind-amd64-linux.so
+   fun:_ZNSt18condition_variable4waitIZN16AwakenerWaitable14wait_broadcastEvEUlvE_EEvRSt11unique_lockISt5mutexET_
+   fun:_ZN16AwakenerWaitable14wait_broadcastEv
+   fun:main
 }

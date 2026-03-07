@@ -9,6 +9,7 @@
 #include <boost/redis/connection.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/redis/src.hpp> // boost redis implementation
+#include <mtlog/mt_log.hpp>
 #include <string>
 #include <stdexcept>
 
@@ -19,9 +20,11 @@ int main(int argc, char **argv)
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
+  const char *REDIS_STREAM_CONSUMER_LOGFILE = std::getenv("REDIS_STREAM_CONSUMER_LOGFILE");
+
   if (!(redis_host && redis_port && redis_password))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_STREAM_CONSUMER_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
 
@@ -48,22 +51,30 @@ int main(int argc, char **argv)
   //   auto main_ioc_thread = std::thread([&main_ioc]()
   //     { main_ioc.run(); });
 
+  mt_logging::logger().log(
+      {REDIS_STREAM_CONSUMER_LOGFILE,
+       REDIS_STREAM_CONSUMER_LOGFILE,
+       std::ios::out,
+       true});
+
   bool m_worker_shall_stop{false};
   try
   {
     AwakenerWaitable awakener;
-
     WorkQStream::Consumer redisSubscribe(argv[1], awakener);
-    std::cout << "Application loop stated\n";
+
     while (!m_worker_shall_stop)
     {
       WorkItem work = awakener.wait_broadcast();
-      D(std::cout << "Application loop awakened" << std::endl;)
 
       if (redisSubscribe.is_signal_stopped())
       {
-        std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
+        mt_logging::logger().log(
+            {REDIS_STREAM_CONSUMER_LOGFILE,
+             "Signal to Stopped",
+             std::ios::app,
+             true});
         continue;
       }
 
@@ -71,12 +82,11 @@ int main(int argc, char **argv)
       const std::string &stream = work.stream;
       const std::string &id = work.id;
       const auto &fields = work.fields;
-      // The base class will print the messages.
-      std::cout << "- Consumer work item: [STREAM " << stream << "      ID " << id << "]  Fields: ";
-      for (auto &[k, v] : fields)
-        std::cout << "  " << k << " = " << v;
-      std::cout << std::endl;
-
+      mt_logging::logger().log(
+          {REDIS_STREAM_CONSUMER_LOGFILE,
+           fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
+           std::ios::app,
+           true});
       bool ok = false; // process_job(stream, fields);
 
       // if (ok)
@@ -86,7 +96,12 @@ int main(int argc, char **argv)
       //   redisSubscribe.send_to_dlq_now(stream, id, fields);
       // }
     }
-    std::cout << "Exited normally\n";
+    mt_logging::logger().log(
+        {REDIS_STREAM_CONSUMER_LOGFILE,
+         "Awakener stop",
+         std::ios::app,
+         true});
+//    awakener.stop();
   }
   catch (const std::exception &e)
   {
