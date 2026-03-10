@@ -83,11 +83,11 @@ namespace WorkQStream
     m_is_connected.store(false);
     m_signal_status.store(false);
     m_shutting_down.store(false);
-    D(mt_logging::logger().log(
+    mt_logging::logger().log(
         {REDIS_STREAM_PRODUCER_LOGFILE,
          "Producer created",
          std::ios::app,
-         true});)
+         true});
 
     for (const auto &[groupName, cfg] : m_group_config)
     {
