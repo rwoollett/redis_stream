@@ -61,6 +61,7 @@ namespace WorkQStream
   class Consumer
   {
     asio::io_context m_ioc;
+    Awakener &m_awakener;
     std::shared_ptr<redis::connection> m_conn_read;
     std::shared_ptr<redis::connection> m_conn_write;
     std::thread m_receiver_thread;
@@ -85,19 +86,22 @@ namespace WorkQStream
     void send_to_dlq_now(std::string stream, std::string id,
                          std::unordered_map<std::string, std::string> fields);
 
+    void request_stop();
+    void join();
+
   private:
     asio::awaitable<void> ensure_group_exists();
-    asio::awaitable<void> receiver(Awakener &awakener);
-    asio::awaitable<void> co_main(Awakener &awakener);
+    asio::awaitable<void> receiver();
+    asio::awaitable<void> co_main();
     asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
                                       const std::unordered_map<std::string, std::string> &fields);
 
     // Timed routines co spawn in co_main
-    asio::awaitable<void> recover_pending(std::string stream, Awakener &awakener);
+    asio::awaitable<void> recover_pending(std::string stream);
     asio::awaitable<void> trim_stream(std::string stream);
 
-    void read_stream(const redis::generic_response &resp, Awakener &awakener);
+    void read_stream(const redis::generic_response &resp);
   };
 
 } /* namespace WorkQStream */
