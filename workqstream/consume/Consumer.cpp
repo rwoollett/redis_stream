@@ -430,6 +430,10 @@ namespace WorkQStream
              std::ios::app,
              true});
       }
+      if (m_signal_status.load())
+      {
+        co_return;
+      }
 
       m_is_connected.store(false);
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
