@@ -118,7 +118,10 @@ namespace WorkQStream
     boost::asio::post(m_ioc, [this]
                       { msg_queue.shutdown(); });
 
-    msg_queue.push(ProduceMessage{}); // dummy wake-up on lockfree queue 
+    msg_queue.push(ProduceMessage{}); // dummy wake-up on lockfree queue
+
+    boost::asio::post(m_ioc, [this]
+                      { m_ioc.stop(); });
 
     if (m_sender_thread.joinable())
       m_sender_thread.join();
@@ -255,7 +258,7 @@ namespace WorkQStream
 
       std::vector<ProduceMessage> batch;
       ProduceMessage msg;
-      while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg) )
+      while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
       {
         if (m_shutting_down.load())
           break;
@@ -354,6 +357,10 @@ namespace WorkQStream
         [&](const boost::system::error_code &, int)
         {
           m_signal_status.store(true);
+          m_shutting_down.store(true);
+          if (m_conn)
+            m_conn->cancel();
+          msg_queue.shutdown();
         });
 
     for (;;)
