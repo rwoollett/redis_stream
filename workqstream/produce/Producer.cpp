@@ -256,68 +256,74 @@ namespace WorkQStream
       if (m_shutting_down.load())
         break;
 
-      std::vector<ProduceMessage> batch;
-      ProduceMessage msg;
-      while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
+      // std::vector<ProduceMessage> batch;
+      ProduceMessage m;
+      // while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
+      // {
+      //   if (m_shutting_down.load())
+      //     break;
+      //   batch.push_back(msg);
+      //   MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
+      // }
+      if (!msg_queue.blocking_pop(m))
       {
         if (m_shutting_down.load())
           break;
-        batch.push_back(msg);
-        MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
+        continue;
       }
 
       if (m_shutting_down.load())
         break;
 
-      if (batch.empty())
-        continue;
+      // if (batch.empty())
+      //   continue;
 
-      for (const auto &m : batch)
+      // for (const auto &m : batch)
+      // {
+      redis::request req;
+      push_xadd(req, m.channel, m);
+
+      redis::response<std::string> resp;
+      req.get_config().cancel_if_not_connected = true;
+      co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+
+      if (ec)
       {
-        redis::request req;
-        push_xadd(req, m.channel, m);
-
-        redis::response<std::string> resp;
-        req.get_config().cancel_if_not_connected = true;
-        co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-
-        if (ec)
-        {
-          mt_logging::logger().log(
-              {REDIS_STREAM_PRODUCER_LOGFILE,
-               fmt::format(
-                   "Perform a full reconnect to redis. Reason for error: {}",
-                   make_ops_error(
-                       "XADD", m.channel,
-                       "(n/a)", "(n/a)",
-                       ec.message(),
-                       "Check Redis connectivity and authentication")),
-               std::ios::app,
-               true});
-
-          for (const auto &m : batch)
-          {
-            msg_queue.push(m);
-            MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-          }
-
-          co_return; // Connection lost, exit function and try reconnect to redis.
-        }
-
-        MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
-
-        std::string XID = std::get<0>(resp).value();
-        D(mt_logging::logger().log(
-            {REDIS_STREAM_PRODUCER_LOGFILE,
-             fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
-             std::ios::app,
-             true});)
         mt_logging::logger().log(
             {REDIS_STREAM_PRODUCER_LOGFILE,
-             fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
+             fmt::format(
+                 "Perform a full reconnect to redis. Reason for error: {}",
+                 make_ops_error(
+                     "XADD", m.channel,
+                     "(n/a)", "(n/a)",
+                     ec.message(),
+                     "Check Redis connectivity and authentication")),
              std::ios::app,
              true});
+
+        // for (const auto &m : batch)
+        // {
+        msg_queue.push(m);
+        MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
+        //}
+
+        co_return; // Connection lost, exit function and try reconnect to redis.
       }
+
+      MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
+
+      std::string XID = std::get<0>(resp).value();
+      D(mt_logging::logger().log(
+          {REDIS_STREAM_PRODUCER_LOGFILE,
+           fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
+           std::ios::app,
+           true});)
+      mt_logging::logger().log(
+          {REDIS_STREAM_PRODUCER_LOGFILE,
+           fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
+           std::ios::app,
+           true});
+      //}
     }
     // Drop all remaining messages on shutdown
     if (m_shutting_down.load())
@@ -339,15 +345,17 @@ namespace WorkQStream
   auto Producer::co_main() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
-    redis::config cfg;
-    cfg.addr.host = REDIS_HOST;
-    cfg.addr.port = REDIS_PORT;
-    cfg.password = REDIS_PASSWORD;
-    if (std::string(REDIS_USE_SSL) == "on")
-    {
-      cfg.use_ssl = true;
-      // DONOT disable health check
-    }
+    // redis::config cfg;
+    // cfg.clientname = "redis_producer";
+    // cfg.addr.host = REDIS_HOST;
+    // cfg.addr.port = REDIS_PORT;
+    // cfg.password = REDIS_PASSWORD;
+    // if (std::string(REDIS_USE_SSL) == "on")
+    // {
+    //   cfg.use_ssl = true;
+    // }
+    // // cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
+    // cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)
@@ -386,6 +394,17 @@ namespace WorkQStream
         m_conn = std::make_shared<redis::connection>(ex);
       }
 
+      redis::config cfg;
+      cfg.clientname = "redis_producer";
+      cfg.addr.host = REDIS_HOST;
+      cfg.addr.port = REDIS_PORT;
+      cfg.password = REDIS_PASSWORD;
+      if (std::string(REDIS_USE_SSL) == "on")
+      {
+        cfg.use_ssl = true;
+      }
+      // cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
+      cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
 
       try

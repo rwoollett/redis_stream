@@ -29,14 +29,13 @@ if test "$DIE" -eq 1; then
   exit 1
 fi
 
+. ./set_env.sh
+
 (docker compose up -d)
 if compgen -G "output_*" > /dev/null; then 
   echo "Cleared output_*" 
   rm output_* 
 fi
-
-. ./set_env.sh
-
 
 export WORKER_RECOVER_PENDING=on
 export REDIS_STREAM_CONSUMER_LOGFILE=output_rs_consumer_recovery.log

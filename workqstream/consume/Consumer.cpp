@@ -315,16 +315,17 @@ namespace WorkQStream
   auto Consumer::co_main() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
-    redis::config cfg;
-    cfg.addr.host = REDIS_HOST;
-    cfg.addr.port = REDIS_PORT;
-    cfg.password = REDIS_PASSWORD;
-    if (std::string(REDIS_USE_SSL) == "on")
-    {
-      cfg.use_ssl = true;
-      // disable health check:
-      cfg.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
-    }
+    // redis::config cfg;
+    // cfg.clientname = "redis_consumer";
+    // cfg.addr.host = REDIS_HOST;
+    // cfg.addr.port = REDIS_PORT;
+    // cfg.password = REDIS_PASSWORD;
+    // if (std::string(REDIS_USE_SSL) == "on")
+    // {
+    //   cfg.use_ssl = true;
+    // }
+    // // minute health check:
+    // cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
 
     mt_logging::logger().log(
         {REDIS_STREAM_CONSUMER_LOGFILE,
@@ -377,6 +378,17 @@ namespace WorkQStream
         m_conn_write = std::make_shared<redis::connection>(ex);
       }
 
+      redis::config cfg;
+      cfg.clientname = "redis_consumer_read";
+      cfg.addr.host = REDIS_HOST;
+      cfg.addr.port = REDIS_PORT;
+      cfg.password = REDIS_PASSWORD;
+      if (std::string(REDIS_USE_SSL) == "on")
+      {
+        cfg.use_ssl = true;
+      }
+      // minute health check:
+      cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
       m_conn_read->async_run(
           cfg,
           redis::logger{redis::logger::level::err},
@@ -388,6 +400,7 @@ namespace WorkQStream
                  std::ios::app,
                  true});
           });
+      cfg.clientname = "redis_consumer_write";
       m_conn_write->async_run(
           cfg,
           redis::logger{redis::logger::level::err},
