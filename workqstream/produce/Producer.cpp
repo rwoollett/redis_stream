@@ -100,7 +100,14 @@ namespace WorkQStream
         m_valid_streams.insert(s);
       }
     }
-    asio::co_spawn(m_ioc.get_executor(), Producer::co_main(), asio::detached);
+    //asio::co_spawn(m_ioc.get_executor(), Producer::co_main(), asio::detached);
+    asio::co_spawn(
+        m_ioc.get_executor(),
+        [this]() -> asio::awaitable<void>
+        {
+          co_return co_await this->co_main();
+        },
+        asio::detached);
 
     m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });

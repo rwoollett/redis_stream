@@ -16,11 +16,11 @@ pwd
   echo "**Error**: You must have a \"$cmakedir/clientRedis\" folder with file \"ClientRedis\" built from CMakeLists"
   DIE=1
 }
-(test -f ./$cmakedir/clientProducer/ClientProducer) || {
-  echo
-  echo "**Error**: You must have a \"$cmakedir/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
-  DIE=1
-}
+# (test -f ./$cmakedir/clientProducer/ClientProducer) || {
+#   echo
+#   echo "**Error**: You must have a \"$cmakedir/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
+#   DIE=1
+# }
 
 
 if test "$DIE" -eq 1; then
@@ -49,8 +49,8 @@ while [ $count -le 3 ]; do
   ((count++))
 done
 
-sleep .4
-(./$cmakedir/clientProducer/ClientProducer > output_publ_$$.log 2>&1 &)
+# sleep .4
+# (./$cmakedir/clientProducer/ClientProducer > output_publ_$$.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

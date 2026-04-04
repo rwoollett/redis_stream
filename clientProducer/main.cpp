@@ -7,6 +7,22 @@
 #include "../workqstream/produce/Producer.h"
 #include <boost/redis/src.hpp>
 #include <mtlog/mt_log.hpp>
+#include <termios.h>
+#include <unistd.h>
+
+char getch()
+{
+  termios oldt, newt;
+  tcgetattr(STDIN_FILENO, &oldt); // save old settings
+  newt = oldt;
+  newt.c_lflag &= ~(ICANON | ECHO); // disable buffering + echo
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+  char c = getchar(); // read one char
+
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // restore settings
+  return c;
+}
 
 int main(int argc, char **argv)
 {
@@ -46,7 +62,7 @@ int main(int argc, char **argv)
          true});
 
     auto doWork = [&producer, REDIS_STREAM_PRODUCER_LOGFILE](const std::string &channel,
-                              const std::vector<std::pair<std::string, std::string>> &fields = {{"postid", "c1234"}})
+                                                             const std::vector<std::pair<std::string, std::string>> &fields = {{"postid", "c1234"}})
     {
       if (!producer.is_redis_connected())
       {
@@ -69,16 +85,20 @@ int main(int argc, char **argv)
     };
 
     // The only messages to console
-    //std::cout << "Application loop stated (Ctrl-C to signal stop)\n";
+    // std::cout << "Application loop stated (Ctrl-C to signal stop)\n";
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
       if (producer.is_signal_stopped())
       {
         m_worker_shall_stop = true;
         continue;
       }
+
+      std::cout << "Press any key to publish..." << std::endl;
+      char key = getch();
 
       if (argc > 1)
       {
@@ -92,9 +112,6 @@ int main(int argc, char **argv)
         doWork("ttt_player_Move", {{"postid", "c1234"}, {"postname", "category"}});
         doWork("ttt_player_Move");
       }
-
-      // 5 secs
-      std::this_thread::sleep_for(std::chrono::milliseconds(5000));
     }
   }
   catch (const std::exception &e)
@@ -108,6 +125,6 @@ int main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
-  //std::cout << "Exited normally\n";
+  // std::cout << "Exited normally\n";
   return EXIT_SUCCESS;
 }
