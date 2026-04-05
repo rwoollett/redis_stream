@@ -54,17 +54,11 @@ int main(int argc, char **argv)
     WorkQStream::Producer producer;
     // Before running do a sanity check on connections for Redis.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    // Log and create ClientProducer log
-    mt_logging::logger().log(
-        {REDIS_STREAM_PRODUCER_LOGFILE,
-         fmt::format("Redis producer connected: {}", (producer.is_redis_connected() ? "true" : "false")),
-         std::ios::app,
-         true});
 
     auto doWork = [&producer, REDIS_STREAM_PRODUCER_LOGFILE](const std::string &channel,
                                                              const std::vector<std::pair<std::string, std::string>> &fields = {{"postid", "c1234"}})
     {
-      if (!producer.is_redis_connected())
+      if (producer.is_signal_stopped())
       {
         mt_logging::logger().log(
             {REDIS_STREAM_PRODUCER_LOGFILE,

@@ -66,7 +66,7 @@ namespace WorkQStream
     FieldValue fields[MAX_FIELDS];
     int field_count;
   };
-  
+
   template <typename T, size_t Capacity>
   class BlockingSPSCQueue
   {
@@ -132,25 +132,41 @@ namespace WorkQStream
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
     BlockingSPSCQueue<ProduceMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
-    std::atomic<bool> m_signal_status;
-    std::atomic<bool> m_is_connected;
-    std::atomic<bool> m_shutting_down;
+    std::atomic<bool> m_signal_status{false};
+    std::atomic<bool> m_is_connected{false};
+    std::atomic<bool> m_shutting_down{false};
+    std::atomic<bool> m_conn_alive{false};
     std::atomic<std::sig_atomic_t> m_reconnect_count;
     std::thread m_sender_thread;
+    std::thread m_worker;
     GroupConfigMap m_group_config{};
     std::unordered_set<std::string> m_valid_streams{};
+    enum class ConnectionState
+    {
+      Idle,
+      Connecting,
+      Authenticating,
+      Ready,
+      Broken,
+      Reconnecting,
+      Shutdown
+    };
+
+    std::atomic<ConnectionState> m_state;
 
   public:
     Producer();
     virtual ~Producer();
 
     bool is_signal_stopped() { return (m_signal_status.load()); };
-    bool is_redis_connected() { return (m_is_connected.load()); };
     void enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields);
 
   private:
     asio::awaitable<void> co_main();
-    asio::awaitable<void> process_messages();
+    asio::awaitable<void> produce_one(const ProduceMessage &msg);
+    void worker_thread_fn(boost::asio::any_io_executor ex);
+
+    void set_state(ConnectionState new_state, std::string_view reason);
   };
 
   class Sender : public std::enable_shared_from_this<Sender>
