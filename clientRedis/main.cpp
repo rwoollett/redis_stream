@@ -20,11 +20,11 @@ int main(int argc, char **argv)
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
-  const char *REDIS_STREAM_CONSUMER_LOGFILE = std::getenv("REDIS_STREAM_CONSUMER_LOGFILE");
+  const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
 
   if (!(redis_host && redis_port && redis_password))
   {
-    std::cerr << "Environment variables REDIS_STREAM_CONSUMER_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
+    std::cerr << "Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
 
@@ -52,9 +52,7 @@ int main(int argc, char **argv)
   //     { main_ioc.run(); });
 
   mt_logging::logger().log(
-      {REDIS_STREAM_CONSUMER_LOGFILE,
-       REDIS_STREAM_CONSUMER_LOGFILE,
-       std::ios::out,
+      {MTLOG_LOGFILE,
        true});
 
   bool m_worker_shall_stop{false};
@@ -71,9 +69,7 @@ int main(int argc, char **argv)
       {
         m_worker_shall_stop = true;
         mt_logging::logger().log(
-            {REDIS_STREAM_CONSUMER_LOGFILE,
-             "Signal to Stopped",
-             std::ios::app,
+            {"Signal to Stopped",
              true});
         continue;
       }
@@ -83,9 +79,7 @@ int main(int argc, char **argv)
       const std::string &id = work.id;
       const auto &fields = work.fields;
       mt_logging::logger().log(
-          {REDIS_STREAM_CONSUMER_LOGFILE,
-           fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
-           std::ios::app,
+          {fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
            true});
       bool ok = false; // process_job(stream, fields);
 
@@ -97,9 +91,7 @@ int main(int argc, char **argv)
       // }
     }
     mt_logging::logger().log(
-        {REDIS_STREAM_CONSUMER_LOGFILE,
-         "Awakener stop",
-         std::ios::app,
+        {"Awakener stop",
          true});
 //    awakener.stop();
   }

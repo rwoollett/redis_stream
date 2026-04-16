@@ -22,7 +22,7 @@ using namespace boost::asio::experimental::awaitable_operators;
 namespace WorkQStream
 {
 
-  static const char *REDIS_STREAM_PRODUCER_LOGFILE = std::getenv("REDIS_STREAM_PRODUCER_LOGFILE");
+  static const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
   static const char *REDIS_GROUP_CONFIG = std::getenv("REDIS_GROUP_CONFIG");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
@@ -58,9 +58,7 @@ namespace WorkQStream
     catch (const std::exception &e)
     {
       mt_logging::logger().log(
-          {REDIS_STREAM_PRODUCER_LOGFILE,
-           fmt::format("Producer::load certiciates {}", e.what()),
-           std::ios::app,
+          {fmt::format("Producer::load certiciates {}", e.what()),
            true});
     }
   }
@@ -74,9 +72,9 @@ namespace WorkQStream
     if (REDIS_GROUP_CONFIG == nullptr ||
         REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
         REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
-        REDIS_STREAM_PRODUCER_LOGFILE == nullptr)
+        MTLOG_LOGFILE == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_STREAM_PRODUCER_LOGFILE, REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_GROUP_CONFIG, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
 
     MESSAGE_QUEUED_COUNT.store(0);
@@ -90,9 +88,7 @@ namespace WorkQStream
     m_state.store(ConnectionState::Idle);
 
     mt_logging::logger().log(
-        {REDIS_STREAM_PRODUCER_LOGFILE,
-         "Producer created",
-         std::ios::app,
+        {"Producer created",
          true});
 
     for (const auto &[groupName, cfg] : m_group_config)
@@ -144,9 +140,7 @@ namespace WorkQStream
     if (m_sender_thread.joinable())
       m_sender_thread.join();
 
-    mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
-                              "Redis Producer destroyed",
-                              std::ios::app,
+    mt_logging::logger().log({"Redis Producer destroyed",
                               true});
   }
 
@@ -276,14 +270,10 @@ namespace WorkQStream
 
     std::string XID = std::get<0>(resp).value();
     D(mt_logging::logger().log(
-        {REDIS_STREAM_PRODUCER_LOGFILE,
-         fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
-         std::ios::app,
+        {fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
          true});)
     mt_logging::logger().log(
-        {REDIS_STREAM_PRODUCER_LOGFILE,
-         fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
-         std::ios::app,
+        {fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
          true});
 
     set_state(ConnectionState::Ready, "Produce OK");
@@ -322,9 +312,7 @@ namespace WorkQStream
       while (msg_queue.pop(leftover))
         dropped++;
 
-      mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
-                                fmt::format("Producer shutdown: dropped {} pending messages", dropped),
-                                std::ios::app,
+      mt_logging::logger().log({fmt::format("Producer shutdown: dropped {} pending messages", dropped),
                                 true});
     }
   }
@@ -440,9 +428,7 @@ namespace WorkQStream
         for (const auto &stream : cfg.streams)
         {
           mt_logging::logger().log(
-              {REDIS_STREAM_PRODUCER_LOGFILE,
-               fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
-               std::ios::app,
+              {fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
                true});
           redis::request req;
           req.push("XGROUP", "CREATE",
@@ -475,9 +461,7 @@ namespace WorkQStream
             else
             {
               mt_logging::logger().log(
-                  {REDIS_STREAM_PRODUCER_LOGFILE,
-                   "Group already exists, continuing",
-                   std::ios::app,
+                  {"Group already exists, continuing",
                    true});
             }
           }
@@ -547,10 +531,8 @@ namespace WorkQStream
       return "Unknown";
     };
 
-    mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
-                              fmt::format("State: {} → {} ({})",
+    mt_logging::logger().log({fmt::format("State: {} → {} ({})",
                                           to_str(old), to_str(new_state), reason),
-                              std::ios::app,
                               true});
   }
 
