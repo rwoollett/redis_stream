@@ -34,23 +34,6 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  //   boost::asio::io_context main_ioc;
-  //   boost::asio::signal_set sig_set(main_ioc.get_executor(), SIGINT, SIGTERM);
-  // #if defined(SIGQUIT)
-  //    sig_set.add(SIGQUIT);
-  // #endif // defined(SIGQUIT)
-
-  //   sig_set.async_wait(
-  //     [&](const boost::system::error_code &, int)
-  //     {
-  //       D(std::cout << "Main ioc is signalled" << std::endl;)
-  //       m_worker_shall_stop = 1;
-  //       //awakener.stop();
-  //     });
-
-  //   auto main_ioc_thread = std::thread([&main_ioc]()
-  //     { main_ioc.run(); });
-
   mt_logging::logger().log(
       {MTLOG_LOGFILE,
        true});
@@ -93,7 +76,6 @@ int main(int argc, char **argv)
     mt_logging::logger().log(
         {"Awakener stop",
          true});
-//    awakener.stop();
   }
   catch (const std::exception &e)
   {
@@ -105,13 +87,6 @@ int main(int argc, char **argv)
     std::cout << e << "\n";
     result = EXIT_FAILURE;
   }
-
-  // main_ioc.stop();
-  // if (main_ioc_thread.joinable())
-  // {
-  //   main_ioc_thread.join();
-  // }
-  // std::cout << "exiting\n";
 
   return result;
 }

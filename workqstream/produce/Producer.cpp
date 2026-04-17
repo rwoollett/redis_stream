@@ -222,16 +222,6 @@ namespace WorkQStream
       conn->reset_stream();
       m_conn_alive.store(false);
 
-      // if (!m_shutting_down.load())
-      // {
-      //   msg_queue.push(msg);
-      // }
-
-      // mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-      //                           "Redis publish timed out. Requeueing message and forcing reconnect.",
-      //                           std::ios::app,
-      //                           true});
-
       co_return;
     }
 
@@ -248,35 +238,13 @@ namespace WorkQStream
       conn->reset_stream();
       m_conn_alive.store(false);
 
-      // if (!m_shutting_down.load())
-      // {
-      //   msg_queue.push(msg);
-      // }
-
-      // mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-      //                           fmt::format("Redis publish failed: {}. {}",
-      //                                       exec_ec.message(),
-      //                                       m_shutting_down.load()
-      //                                           ? "Shutdown in progress, dropping message."
-      //                                           : "Requeueing message."),
-      //                           std::ios::app,
-      //                           true});
-
       co_return;
     }
 
     // Success path
     MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
-
     std::string XID = std::get<0>(resp).value();
-    D(mt_logging::logger().log(
-        {fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
-         true});)
-    mt_logging::logger().log(
-        {fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
-         true});
-
-    set_state(ConnectionState::Ready, "Produce OK");
+    set_state(ConnectionState::Ready, fmt::format("Produce OK: {} produced. XID {} for {}", MESSAGE_SUCCESS_COUNT.load(), XID, msg.channel));
   }
 
   void Producer::worker_thread_fn(boost::asio::any_io_executor ex)

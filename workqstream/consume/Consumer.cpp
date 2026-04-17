@@ -207,11 +207,6 @@ namespace WorkQStream
     for (auto &item : dispatch_items)
     {
       m_cstoken_message_count.fetch_add(1, std::memory_order_relaxed);
-
-      mt_logging::logger().log(
-          {fmt::format(" {} consumed. XID {}", m_cstoken_message_count.load(), item.id),
-           true});
-
       m_awakener.broadcast_single(
           std::string(item.stream),       // service name
           std::string(item.id),           // message ID
