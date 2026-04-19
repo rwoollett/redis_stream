@@ -44,6 +44,7 @@ int main(int argc, char **argv)
   }
   mt_logging::logger().log(
       {MTLOG_LOGFILE,
+       mt_logging::LogLevel::Error,
        true});
 
   try
@@ -60,6 +61,7 @@ int main(int argc, char **argv)
       {
         mt_logging::logger().log(
             {fmt::format("Redis connection failed, cannot publish message to channel: {}", channel),
+             mt_logging::LogLevel::Error,
              true});
       }
       else
@@ -68,6 +70,7 @@ int main(int argc, char **argv)
 
         D(mt_logging::logger().log(
             {fmt::format("Published message to channel: {} with message {}", channel, fmt::join(fields, ", ")),
+             mt_logging::LogLevel::Info,
              true});)
       }
     };

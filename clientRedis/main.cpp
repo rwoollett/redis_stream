@@ -36,6 +36,7 @@ int main(int argc, char **argv)
 
   mt_logging::logger().log(
       {MTLOG_LOGFILE,
+       mt_logging::LogLevel::Error,
        true});
 
   bool m_worker_shall_stop{false};
@@ -53,6 +54,7 @@ int main(int argc, char **argv)
         m_worker_shall_stop = true;
         mt_logging::logger().log(
             {"Signal to Stopped",
+             mt_logging::LogLevel::Info,
              true});
         continue;
       }
@@ -63,6 +65,7 @@ int main(int argc, char **argv)
       const auto &fields = work.fields;
       mt_logging::logger().log(
           {fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
+           mt_logging::LogLevel::Info,
            true});
       bool ok = false; // process_job(stream, fields);
 
@@ -73,9 +76,6 @@ int main(int argc, char **argv)
       //   redisSubscribe.send_to_dlq_now(stream, id, fields);
       // }
     }
-    mt_logging::logger().log(
-        {"Awakener stop",
-         true});
   }
   catch (const std::exception &e)
   {

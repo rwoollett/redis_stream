@@ -39,6 +39,7 @@ namespace WorkQStream
   {
     mt_logging::logger().log(
         {fmt::format("Broadcast work item message \n STREAM: {}\n    ID: {}\n", stream_name, message_id, fmt::join(fields, ", ")),
+         mt_logging::LogLevel::Info,
          true});
   }
 
@@ -74,6 +75,7 @@ namespace WorkQStream
     {
       mt_logging::logger().log(
           {fmt::format("Consumer::load certiciates {}", e.what()),
+           mt_logging::LogLevel::Error,
            true});
     }
   }
@@ -102,7 +104,7 @@ namespace WorkQStream
 
     mt_logging::logger().log(
         {"Redis Consumer created",
-         true});
+         mt_logging::LogLevel::Info, true});
 
     for (const auto &s : get_worker_group(m_group_config).streams)
     {
@@ -123,8 +125,6 @@ namespace WorkQStream
   {
     request_stop();
     join();
-    mt_logging::logger().log({"Redis Consumer destroyed",
-                              true});
   }
 
   void Consumer::request_stop()
@@ -163,6 +163,7 @@ namespace WorkQStream
     {
       mt_logging::logger().log(
           {fmt::format("Ensuring group {} exists on stream {}", WORKER_GROUP, stream),
+           mt_logging::LogLevel::Info,
            true});
 
       redis::request req;
@@ -194,6 +195,7 @@ namespace WorkQStream
         {
           mt_logging::logger().log(
               {"Group already exists, continuing",
+               mt_logging::LogLevel::Warn,
                true});
         }
       }
@@ -259,6 +261,7 @@ namespace WorkQStream
           mt_logging::logger().log(
               {fmt::format(
                    "- Consumer::receiver operation_aborted {} {}", ec.message(), ec.value()),
+               mt_logging::LogLevel::Error,
                true});
 
           co_return; // true; // false; // do not reconnect this ec
@@ -272,6 +275,7 @@ namespace WorkQStream
                      WORKER_GROUP, m_worker_id,
                      ec.message(),
                      "Check Redis connectivity and authentication")),
+             mt_logging::LogLevel::Error,
              true});
 
         throw std::runtime_error(
@@ -306,6 +310,7 @@ namespace WorkQStream
 
     mt_logging::logger().log(
         {fmt::format("Worker id:  {}", m_worker_id),
+         mt_logging::LogLevel::Info,
          true});
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
@@ -371,6 +376,7 @@ namespace WorkQStream
           {
             mt_logging::logger().log(
                 {fmt::format("[m_conn_read async_run] ended: {}", ec.message()),
+                 mt_logging::LogLevel::Error,
                  true});
           });
       cfg.clientname = "redis_consumer_write";
@@ -381,6 +387,7 @@ namespace WorkQStream
           {
             mt_logging::logger().log(
                 {fmt::format("[m_conn_write async_run] ended: {}", ec.message()),
+                 mt_logging::LogLevel::Error,
                  true});
           });
 
@@ -410,6 +417,7 @@ namespace WorkQStream
       {
         mt_logging::logger().log(
             {fmt::format("Redis consume co_main error: {}", e.what()),
+             mt_logging::LogLevel::Error,
              true});
       }
       if (m_signal_status.load())
@@ -424,6 +432,7 @@ namespace WorkQStream
           {fmt::format("Consumer receiver exited {} times, reconnecting in {} seconds...",
                        m_reconnect_count.load(),
                        CONNECTION_RETRY_DELAY),
+           mt_logging::LogLevel::Info,
            true});
 
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
@@ -496,6 +505,7 @@ namespace WorkQStream
     req.push("XACK", stream, WORKER_GROUP, id);
     mt_logging::logger().log(
         {fmt::format("XACK'd work item:     [STREAM {}      ID {}]  WORKER GROUP {}", stream, id, WORKER_GROUP),
+         mt_logging::LogLevel::Info,
          true});
 
     co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
@@ -508,7 +518,7 @@ namespace WorkQStream
     push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
     mt_logging::logger().log(
         {fmt::format("DLQ'd work item:      [STREAM {}      ID {}]  WORKER GROUP {}", std::string(stream) + ".DLQ", id, WORKER_GROUP),
-         true});
+         mt_logging::LogLevel::Info, true});
 
     co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
 
@@ -527,6 +537,7 @@ namespace WorkQStream
         // 1. Get up to 10 pending messages
         mt_logging::logger().log(
             {fmt::format("XPENDING data         [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
+             mt_logging::LogLevel::Info,
              true});
 
         redis::request req;
@@ -546,6 +557,7 @@ namespace WorkQStream
         {
           mt_logging::logger().log(
               {fmt::format(" - Pending ID: {} consumer={} idle={} deliveries={}", p.id, p.consumer, p.idle_ms, p.delivery_count),
+               mt_logging::LogLevel::Info,
                true});
           // Optional: DLQ logic
           if (p.delivery_count > 5)
@@ -574,6 +586,7 @@ namespace WorkQStream
           {
             mt_logging::logger().log(
                 {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
+                 mt_logging::LogLevel::Info,
                  true});
 
             // 4. Push into your Awakener queue
@@ -588,6 +601,7 @@ namespace WorkQStream
       {
         mt_logging::logger().log(
             {fmt::format("XPENDING recovery     error: {}", e.what()),
+             mt_logging::LogLevel::Error,
              true});
       }
 
@@ -615,6 +629,7 @@ namespace WorkQStream
         redis::request req;
         mt_logging::logger().log(
             {fmt::format("XTRIM data            [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
+             mt_logging::LogLevel::Info,
              true});
 
         req.push("XTRIM", stream, "MAXLEN", "~", std::to_string(TRIM_STREAM_SIZE));
@@ -625,6 +640,7 @@ namespace WorkQStream
       {
         mt_logging::logger().log(
             {fmt::format("XTRIM recovery        error: {}", e.what()),
+             mt_logging::LogLevel::Error,
              true});
       }
 

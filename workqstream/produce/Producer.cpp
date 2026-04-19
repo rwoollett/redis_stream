@@ -59,6 +59,7 @@ namespace WorkQStream
     {
       mt_logging::logger().log(
           {fmt::format("Producer::load certiciates {}", e.what()),
+           mt_logging::LogLevel::Error,
            true});
     }
   }
@@ -89,6 +90,7 @@ namespace WorkQStream
 
     mt_logging::logger().log(
         {"Producer created",
+         mt_logging::LogLevel::Info,
          true});
 
     for (const auto &[groupName, cfg] : m_group_config)
@@ -141,6 +143,7 @@ namespace WorkQStream
       m_sender_thread.join();
 
     mt_logging::logger().log({"Redis Producer destroyed",
+                              mt_logging::LogLevel::Info,
                               true});
   }
 
@@ -281,6 +284,7 @@ namespace WorkQStream
         dropped++;
 
       mt_logging::logger().log({fmt::format("Producer shutdown: dropped {} pending messages", dropped),
+                                mt_logging::LogLevel::Info,
                                 true});
     }
   }
@@ -397,6 +401,7 @@ namespace WorkQStream
         {
           mt_logging::logger().log(
               {fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
+               mt_logging::LogLevel::Info,
                true});
           redis::request req;
           req.push("XGROUP", "CREATE",
@@ -430,6 +435,7 @@ namespace WorkQStream
             {
               mt_logging::logger().log(
                   {"Group already exists, continuing",
+                   mt_logging::LogLevel::Info,
                    true});
             }
           }
@@ -501,6 +507,7 @@ namespace WorkQStream
 
     mt_logging::logger().log({fmt::format("State: {} → {} ({})",
                                           to_str(old), to_str(new_state), reason),
+                              ConnectionState::Broken == new_state ? mt_logging::LogLevel::Error : mt_logging::LogLevel::Info,
                               true});
   }
 
@@ -509,170 +516,169 @@ namespace WorkQStream
 } /* namespace WorkQStream */
 #endif
 
+// asio::awaitable<void> Producer::process_messages()
+// {
+//   boost::system::error_code ec;
+//   redis::request ping_req;
+//   ping_req.push("PING");
 
-  // asio::awaitable<void> Producer::process_messages()
-  // {
-  //   boost::system::error_code ec;
-  //   redis::request ping_req;
-  //   ping_req.push("PING");
+//   co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
+//   if (ec)
+//   {
+//     m_is_connected.store(false);
+//     mt_logging::logger().log(
+//         {REDIS_STREAM_PRODUCER_LOGFILE,
+//          make_ops_error(
+//              "PING", "(n/a)",
+//              "(n/a)", "(n/a)",
+//              ec.message(),
+//              "Check Redis connectivity and authentication"),
+//          std::ios::app,
+//          true});
+//     co_return; // Connection lost, break so we can exit function and try reconnect to redis.
+//   }
 
-  //   co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
-  //   if (ec)
-  //   {
-  //     m_is_connected.store(false);
-  //     mt_logging::logger().log(
-  //         {REDIS_STREAM_PRODUCER_LOGFILE,
-  //          make_ops_error(
-  //              "PING", "(n/a)",
-  //              "(n/a)", "(n/a)",
-  //              ec.message(),
-  //              "Check Redis connectivity and authentication"),
-  //          std::ios::app,
-  //          true});
-  //     co_return; // Connection lost, break so we can exit function and try reconnect to redis.
-  //   }
+//   // ------------------------------------------------------------
+//   // Ensure the consumer group exists (idempotent)
+//   // ------------------------------------------------------------
+//   for (const auto &[groupName, cfg] : m_group_config)
+//   {
+//     for (const auto &stream : cfg.streams)
+//     {
+//       mt_logging::logger().log(
+//           {REDIS_STREAM_PRODUCER_LOGFILE,
+//            fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
+//            std::ios::app,
+//            true});
+//       redis::request req;
+//       req.push("XGROUP", "CREATE",
+//                stream,
+//                groupName,
+//                "$",
+//                "MKSTREAM");
 
-  //   // ------------------------------------------------------------
-  //   // Ensure the consumer group exists (idempotent)
-  //   // ------------------------------------------------------------
-  //   for (const auto &[groupName, cfg] : m_group_config)
-  //   {
-  //     for (const auto &stream : cfg.streams)
-  //     {
-  //       mt_logging::logger().log(
-  //           {REDIS_STREAM_PRODUCER_LOGFILE,
-  //            fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
-  //            std::ios::app,
-  //            true});
-  //       redis::request req;
-  //       req.push("XGROUP", "CREATE",
-  //                stream,
-  //                groupName,
-  //                "$",
-  //                "MKSTREAM");
+//       redis::response<std::string> resp;
 
-  //       redis::response<std::string> resp;
+//       boost::system::error_code ec;
+//       co_await m_conn->async_exec(req, resp,
+//                                   asio::redirect_error(asio::use_awaitable, ec));
 
-  //       boost::system::error_code ec;
-  //       co_await m_conn->async_exec(req, resp,
-  //                                   asio::redirect_error(asio::use_awaitable, ec));
+//       if (ec)
+//       {
+//         std::string msg = ec.message();
 
-  //       if (ec)
-  //       {
-  //         std::string msg = ec.message();
+//         if (msg.find("BUSYGROUP") == std::string::npos)
+//         {
+//           throw std::runtime_error(
+//               make_ops_error(
+//                   "XGROUP CREATE",
+//                   stream,
+//                   groupName,
+//                   "(n/a)",
+//                   msg,
+//                   "Verify stream name and Redis ACL permissions"));
+//         }
+//         else
+//         {
+//           mt_logging::logger().log(
+//               {REDIS_STREAM_PRODUCER_LOGFILE,
+//                "Group already exists, continuing",
+//                std::ios::app,
+//                true});
+//         }
+//       }
+//     }
+//   }
 
-  //         if (msg.find("BUSYGROUP") == std::string::npos)
-  //         {
-  //           throw std::runtime_error(
-  //               make_ops_error(
-  //                   "XGROUP CREATE",
-  //                   stream,
-  //                   groupName,
-  //                   "(n/a)",
-  //                   msg,
-  //                   "Verify stream name and Redis ACL permissions"));
-  //         }
-  //         else
-  //         {
-  //           mt_logging::logger().log(
-  //               {REDIS_STREAM_PRODUCER_LOGFILE,
-  //                "Group already exists, continuing",
-  //                std::ios::app,
-  //                true});
-  //         }
-  //       }
-  //     }
-  //   }
+//   m_is_connected.store(true);
+//   m_reconnect_count.store(0); // reset
+//   for (boost::system::error_code ec;;)
+//   {
+//     if (m_shutting_down.load())
+//       break;
 
-  //   m_is_connected.store(true);
-  //   m_reconnect_count.store(0); // reset
-  //   for (boost::system::error_code ec;;)
-  //   {
-  //     if (m_shutting_down.load())
-  //       break;
+//     // std::vector<ProduceMessage> batch;
+//     ProduceMessage m;
+//     // while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
+//     // {
+//     //   if (m_shutting_down.load())
+//     //     break;
+//     //   batch.push_back(msg);
+//     //   MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
+//     // }
+//     if (!msg_queue.blocking_pop(m))
+//     {
+//       if (m_shutting_down.load())
+//         break;
+//       continue;
+//     }
 
-  //     // std::vector<ProduceMessage> batch;
-  //     ProduceMessage m;
-  //     // while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
-  //     // {
-  //     //   if (m_shutting_down.load())
-  //     //     break;
-  //     //   batch.push_back(msg);
-  //     //   MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
-  //     // }
-  //     if (!msg_queue.blocking_pop(m))
-  //     {
-  //       if (m_shutting_down.load())
-  //         break;
-  //       continue;
-  //     }
+//     if (m_shutting_down.load())
+//       break;
 
-  //     if (m_shutting_down.load())
-  //       break;
+//     // if (batch.empty())
+//     //   continue;
 
-  //     // if (batch.empty())
-  //     //   continue;
+//     // for (const auto &m : batch)
+//     // {
+//     redis::request req;
+//     push_xadd(req, m.channel, m);
 
-  //     // for (const auto &m : batch)
-  //     // {
-  //     redis::request req;
-  //     push_xadd(req, m.channel, m);
+//     redis::response<std::string> resp;
+//     req.get_config().cancel_if_not_connected = true;
+//     co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
-  //     redis::response<std::string> resp;
-  //     req.get_config().cancel_if_not_connected = true;
-  //     co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+//     if (ec)
+//     {
+//       mt_logging::logger().log(
+//           {REDIS_STREAM_PRODUCER_LOGFILE,
+//            fmt::format(
+//                "Perform a full reconnect to redis. Reason for error: {}",
+//                make_ops_error(
+//                    "XADD", m.channel,
+//                    "(n/a)", "(n/a)",
+//                    ec.message(),
+//                    "Check Redis connectivity and authentication")),
+//            std::ios::app,
+//            true});
 
-  //     if (ec)
-  //     {
-  //       mt_logging::logger().log(
-  //           {REDIS_STREAM_PRODUCER_LOGFILE,
-  //            fmt::format(
-  //                "Perform a full reconnect to redis. Reason for error: {}",
-  //                make_ops_error(
-  //                    "XADD", m.channel,
-  //                    "(n/a)", "(n/a)",
-  //                    ec.message(),
-  //                    "Check Redis connectivity and authentication")),
-  //            std::ios::app,
-  //            true});
+//       // for (const auto &m : batch)
+//       // {
+//       msg_queue.push(m);
+//       MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
+//       //}
 
-  //       // for (const auto &m : batch)
-  //       // {
-  //       msg_queue.push(m);
-  //       MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-  //       //}
+//       co_return; // Connection lost, exit function and try reconnect to redis.
+//     }
 
-  //       co_return; // Connection lost, exit function and try reconnect to redis.
-  //     }
+//     MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
 
-  //     MESSAGE_SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
+//     std::string XID = std::get<0>(resp).value();
+//     D(mt_logging::logger().log(
+//         {REDIS_STREAM_PRODUCER_LOGFILE,
+//          fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
+//          std::ios::app,
+//          true});)
+//     mt_logging::logger().log(
+//         {REDIS_STREAM_PRODUCER_LOGFILE,
+//          fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
+//          std::ios::app,
+//          true});
+//     //}
+//   }
+//   // Drop all remaining messages on shutdown
+//   if (m_shutting_down.load())
+//   {
+//     ProduceMessage leftover;
+//     int dropped = 0;
+//     while (msg_queue.pop(leftover))
+//     {
+//       dropped++;
+//     }
 
-  //     std::string XID = std::get<0>(resp).value();
-  //     D(mt_logging::logger().log(
-  //         {REDIS_STREAM_PRODUCER_LOGFILE,
-  //          fmt::format("Messages queued: {}, messages XADD'ed {}", MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load()),
-  //          std::ios::app,
-  //          true});)
-  //     mt_logging::logger().log(
-  //         {REDIS_STREAM_PRODUCER_LOGFILE,
-  //          fmt::format("Redis Produce: {} produced. XID {}", MESSAGE_SUCCESS_COUNT.load(), XID),
-  //          std::ios::app,
-  //          true});
-  //     //}
-  //   }
-  //   // Drop all remaining messages on shutdown
-  //   if (m_shutting_down.load())
-  //   {
-  //     ProduceMessage leftover;
-  //     int dropped = 0;
-  //     while (msg_queue.pop(leftover))
-  //     {
-  //       dropped++;
-  //     }
-
-  //     mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
-  //                               fmt::format("Producer shutdown: dropped {} pending messages", dropped),
-  //                               std::ios::app,
-  //                               true});
-  //   }
-  // }
+//     mt_logging::logger().log({REDIS_STREAM_PRODUCER_LOGFILE,
+//                               fmt::format("Producer shutdown: dropped {} pending messages", dropped),
+//                               std::ios::app,
+//                               true});
+//   }
+// }
