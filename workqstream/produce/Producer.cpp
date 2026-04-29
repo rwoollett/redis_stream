@@ -149,6 +149,7 @@ namespace WorkQStream
 
   void Producer::enqueue_message(const std::string &channel, const std::vector<std::pair<std::string, std::string>> &fields)
   {
+    std::lock_guard<std::mutex> lock(m_pub_mutex);
     if (m_signal_status.load())
       return;
 
