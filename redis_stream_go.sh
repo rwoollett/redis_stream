@@ -37,6 +37,7 @@ fi
 #   rm output_* 
 # fi
 
+export MTLOG_LEVEL=debug
 export WORKER_RECOVER_PENDING=on
 export MTLOG_LOGFILE=output_rs_consumer_recovery.log
 (./$cmakedir/clientRedis/ClientRedis worker_recovery > output_scrb_recovery.log 2>&1 &)

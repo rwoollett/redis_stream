@@ -86,6 +86,7 @@ namespace WorkQStream
                             m_awakener(awakener),
                             m_conn_read{},
                             m_conn_write{},
+                            m_write_strand(asio::make_strand(m_ioc)),
                             m_worker_id(workerId),
                             m_group_config(load_group_config()),
                             m_valid_streams{}
@@ -139,7 +140,7 @@ namespace WorkQStream
     }
     if (m_conn_write)
     {
-      boost::asio::post(m_ioc, [conn = m_conn_write]
+      boost::asio::post(m_write_strand, [conn = m_conn_write]
                         { conn->cancel(); });
     }
 
@@ -452,13 +453,19 @@ namespace WorkQStream
   {
     if (m_signal_status.load())
       return;
-    asio::co_spawn(
-        m_ioc,
-        [this, stream = std::move(stream), id = std::move(id)]() mutable -> asio::awaitable<void>
+
+    asio::dispatch(
+        m_write_strand,
+        [this, stream = std::move(stream), id = std::move(id)]() mutable
         {
-          co_await xack(stream, id);
-        },
-        asio::detached);
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream = std::move(stream), id = std::move(id)]() mutable -> asio::awaitable<void>
+              {
+                co_await xack(stream, id);
+              },
+              asio::detached);
+        });
   }
 
   void Consumer::send_to_dlq_now(std::string stream,
@@ -467,13 +474,19 @@ namespace WorkQStream
   {
     if (m_signal_status.load())
       return;
-    asio::co_spawn(
-        m_ioc,
-        [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable -> asio::awaitable<void>
+
+    asio::dispatch(
+        m_write_strand,
+        [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable
         {
-          co_await send_to_dlq(stream, id, fields);
-        },
-        asio::detached);
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable -> asio::awaitable<void>
+              {
+                co_await send_to_dlq(stream, id, fields);
+              },
+              asio::detached);
+        });
   }
 
   void push_dlq_xadd(redis::request &req,

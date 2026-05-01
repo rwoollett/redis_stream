@@ -68,10 +68,10 @@ int main(int argc, char **argv)
       {
         producer.enqueue_message(channel, fields);
 
-        D(mt_logging::logger().log(
+        mt_logging::logger().log(
             {fmt::format("Published message to channel: {} with message {}", channel, fmt::join(fields, ", ")),
              mt_logging::LogLevel::Info,
-             true});)
+             true});
       }
     };
 

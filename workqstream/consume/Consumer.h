@@ -29,6 +29,7 @@
 #include <boost/redis/connection.hpp>
 #include <boost/redis/logger.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/strand.hpp>
 #include <thread>
 #include <iostream>
 #include <workqstream/common/Common.h>
@@ -64,6 +65,8 @@ namespace WorkQStream
     Awakener &m_awakener;
     std::shared_ptr<redis::connection> m_conn_read;
     std::shared_ptr<redis::connection> m_conn_write;
+    asio::strand<asio::io_context::executor_type> m_write_strand;
+
     std::thread m_receiver_thread;
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
