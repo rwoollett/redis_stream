@@ -1,5 +1,4 @@
-#ifndef WORKQSTREAM_PRODUCER_H_
-#define WORKQSTREAM_PRODUCER_H_
+#pragma once
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
@@ -73,7 +72,6 @@ namespace WorkQStream
     std::atomic<bool> m_conn_alive{false};
     std::atomic<std::sig_atomic_t> m_reconnect_count{0};
     std::atomic<ConnectionState> m_state{ConnectionState::Idle};
-    std::atomic<bool> m_run_finished{false};
 
     static std::atomic<std::sig_atomic_t> MESSAGE_QUEUED_COUNT;
     static std::atomic<std::sig_atomic_t> MESSAGE_COUNT;
@@ -81,8 +79,10 @@ namespace WorkQStream
 
   private:
     asio::awaitable<void> co_main();
+    asio::awaitable<void> start_connection(asio::any_io_executor ex);
+    asio::awaitable<bool> do_startup_ping(asio::any_io_executor ex);
+    asio::awaitable<bool> ensure_groups(asio::any_io_executor ex);
     asio::awaitable<void> produce_one(ProduceMessage msg);
-
     void set_state(ConnectionState new_state, std::string_view reason);
   };
 
@@ -99,8 +99,7 @@ namespace WorkQStream
       m_redis_producer.enqueue_message(channel, message);
     };
   };
-  
+
 } // namespace WorkQStream
 
 #endif // HAVE_ASIO
-#endif // WORKQSTREAM_PRODUCER_H_

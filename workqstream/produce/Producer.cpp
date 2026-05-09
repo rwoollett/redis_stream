@@ -62,7 +62,11 @@ namespace WorkQStream
   }
 
   Producer::Producer()
-      : m_ioc{2}, m_strand(asio::make_strand(m_ioc)), m_conn{}, m_group_config(load_group_config()), m_valid_streams{}
+      : m_ioc{2},
+        m_strand(asio::make_strand(m_ioc)),
+        m_conn{},
+        m_group_config(load_group_config()),
+        m_valid_streams{}
   {
     if (!REDIS_GROUP_CONFIG || !REDIS_HOST || !REDIS_PORT ||
         !REDIS_PASSWORD || !REDIS_USE_SSL || !MTLOG_LOGFILE)
@@ -79,7 +83,6 @@ namespace WorkQStream
     m_signal_status.store(false);
     m_shutting_down.store(false);
     m_conn_alive.store(false);
-    m_run_finished.store(false);
     m_reconnect_count.store(0);
     m_state.store(ConnectionState::Idle);
 
@@ -121,11 +124,6 @@ namespace WorkQStream
       asio::post(m_strand, [conn = m_conn]
                  { conn->cancel(); });
     }
-
-    // 2. Wait for co_main() to finish its loop and set m_run_finished
-    // std::cerr << "wait to finised\n";
-    // while (!m_run_finished.load())
-    //   std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     asio::post(m_strand, [this]
                { m_ioc.stop(); });
@@ -227,7 +225,6 @@ namespace WorkQStream
       {
         set_state(ConnectionState::Broken, "Produce timeout");
         conn->cancel();
-        conn->reset_stream();
         m_conn_alive.store(false);
       }
       co_return;
@@ -250,7 +247,6 @@ namespace WorkQStream
                                 exec_ec.message(),
                                 "Check Redis connectivity and authentication")));
       conn->cancel();
-      conn->reset_stream();
       m_conn_alive.store(false);
       co_return;
     }
@@ -262,18 +258,124 @@ namespace WorkQStream
                           MESSAGE_SUCCESS_COUNT.load(), XID, msg.stream));
   }
 
+  asio::awaitable<bool> Producer::do_startup_ping(asio::any_io_executor ex)
+  {
+    redis::request ping;
+    ping.push("PING");
+
+    boost::system::error_code ping_ec;
+    boost::system::error_code ping_timer_ec;
+
+    asio::steady_timer ping_timer{ex};
+    ping_timer.expires_after(std::chrono::seconds(PRODUCE_TIMEOUT_DELAY));
+
+    auto ping_result = co_await (
+        m_conn->async_exec(
+            ping,
+            boost::redis::ignore,
+            asio::redirect_error(asio::use_awaitable, ping_ec)) ||
+        ping_timer.async_wait(
+            asio::redirect_error(asio::use_awaitable, ping_timer_ec)));
+
+    if (ping_result.index() == 1)
+    {
+      set_state(ConnectionState::Broken, "Startup PING timeout");
+      m_conn_alive.store(false);
+      m_conn->cancel();
+      co_return false;
+    }
+
+    if (ping_ec)
+    {
+      if (m_shutting_down.load() &&
+          ping_ec == boost::asio::error::operation_aborted)
+        co_return false;
+
+      set_state(ConnectionState::Broken,
+                fmt::format("Startup PING failed: {}",
+                            make_ops_error(
+                                "PING", "(n/a)",
+                                "(n/a)", "(n/a)",
+                                ping_ec.message(),
+                                "Check Redis connectivity and authentication")));
+
+      m_conn_alive.store(false);
+      m_conn->cancel();
+      co_return false;
+    }
+
+    co_return true;
+  }
+
+  asio::awaitable<bool> Producer::ensure_groups(asio::any_io_executor ex)
+  {
+    for (const auto &[groupName, cfgGroup] : m_group_config)
+    {
+      for (const auto &stream : cfgGroup.streams)
+      {
+        if (m_shutting_down.load() || !m_conn_alive.load())
+          co_return false;
+
+        mt_logging::logger().log(
+            {fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
+             mt_logging::LogLevel::Info,
+             true});
+
+        redis::request req;
+        req.push("XGROUP", "CREATE",
+                 stream,
+                 groupName,
+                 "$",
+                 "MKSTREAM");
+
+        redis::response<std::string> resp;
+        boost::system::error_code ec;
+
+        co_await m_conn->async_exec(
+            req,
+            resp,
+            asio::redirect_error(asio::use_awaitable, ec));
+
+        if (ec)
+        {
+          if (m_shutting_down.load() &&
+              ec == boost::asio::error::operation_aborted)
+            co_return false;
+
+          std::string msg = ec.message();
+          if (msg.find("BUSYGROUP") == std::string::npos)
+          {
+            // Fatal for this connection attempt
+            set_state(ConnectionState::Broken,
+                      fmt::format("XGROUP CREATE failed: {}",
+                                  make_ops_error(
+                                      "XGROUP CREATE",
+                                      stream,
+                                      groupName,
+                                      "(n/a)",
+                                      msg,
+                                      "Verify stream name and Redis ACL permissions")));
+
+            m_conn_alive.store(false);
+            m_conn->cancel();
+            co_return false;
+          }
+          else
+          {
+            mt_logging::logger().log(
+                {"Group already exists, continuing",
+                 mt_logging::LogLevel::Info,
+                 true});
+          }
+        }
+      }
+    }
+    co_return true;
+  }
+
   asio::awaitable<void> Producer::co_main()
   {
     auto ex = co_await asio::this_coro::executor;
-
-    redis::config cfg;
-    cfg.clientname = "redis_producer";
-    cfg.addr.host = REDIS_HOST;
-    cfg.addr.port = REDIS_PORT;
-    cfg.password = REDIS_PASSWORD;
-    if (std::string(REDIS_USE_SSL) == "on")
-      cfg.use_ssl = true;
-    cfg.health_check_interval = std::chrono::minutes(1);
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)
@@ -295,156 +397,14 @@ namespace WorkQStream
       if (m_shutting_down.load())
         co_return;
 
-      // fresh connection per attempt
-      if (std::string(REDIS_USE_SSL) == "on")
-      {
-        asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
-        ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
-        load_certificates(ssl_ctx,
-                          "tls/ca.crt",
-                          "tls/redis.crt",
-                          "tls/redis.key");
-        ssl_ctx.set_verify_callback(verify_certificate);
-        m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
-      }
-      else
-      {
-        m_conn = std::make_shared<redis::connection>(ex);
-      }
-
-      set_state(ConnectionState::Connecting, "Starting async_run");
-      m_conn_alive.store(true);
-
-      m_conn->async_run(
-          cfg,
-          redis::logger{redis::logger::level::err},
-          asio::consign(asio::detached, [this]
-                        {
-                          std::cerr << "async_run finished\n";
-                          // set_state(ConnectionState::Broken, "async_run ended");
-                          m_conn_alive.store(false);
-                          //
-                        }));
-
-      // Startup PING with timeout
-      {
-        redis::request ping;
-        ping.push("PING");
-
-        boost::system::error_code ping_ec;
-        boost::system::error_code ping_timer_ec;
-
-        asio::steady_timer ping_timer{ex};
-        ping_timer.expires_after(std::chrono::seconds(PRODUCE_TIMEOUT_DELAY));
-
-        auto ping_result = co_await (
-            m_conn->async_exec(
-                ping,
-                boost::redis::ignore,
-                asio::redirect_error(asio::use_awaitable, ping_ec)) ||
-            ping_timer.async_wait(
-                asio::redirect_error(asio::use_awaitable, ping_timer_ec)));
-
-        if (ping_result.index() == 1)
-        {
-          set_state(ConnectionState::Broken, "Startup PING timeout");
-          m_conn_alive.store(false);
-          m_conn->cancel();
-          m_conn->reset_stream();
-
-          set_state(ConnectionState::Reconnecting,
-                    fmt::format("Retrying after failed PING in {} seconds",
-                                CONNECTION_RETRY_DELAY));
-
-          co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
-              .async_wait(asio::use_awaitable);
-          continue;
-        }
-
-        if (ping_ec)
-        {
-          if (m_shutting_down.load() &&
-              ping_ec == boost::asio::error::operation_aborted)
-            co_return;
-
-          set_state(ConnectionState::Broken,
-                    fmt::format("Startup PING failed: {}",
-                                make_ops_error(
-                                    "PING", "(n/a)",
-                                    "(n/a)", "(n/a)",
-                                    ping_ec.message(),
-                                    "Check Redis connectivity and authentication")));
-
-          m_conn_alive.store(false);
-          m_conn->cancel();
-          m_conn->reset_stream();
-
-          set_state(ConnectionState::Reconnecting,
-                    fmt::format("Retrying after failed PING in {} seconds",
-                                CONNECTION_RETRY_DELAY));
-
-          co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
-              .async_wait(asio::use_awaitable);
-          continue;
-        }
-      }
-
-      // Ensure consumer groups exist
-      for (const auto &[groupName, cfgGroup] : m_group_config)
-      {
-        for (const auto &stream : cfgGroup.streams)
-        {
-          mt_logging::logger().log(
-              {fmt::format("Ensuring group {} exists on stream {}", groupName, stream),
-               mt_logging::LogLevel::Info,
-               true});
-
-          redis::request req;
-          req.push("XGROUP", "CREATE",
-                   stream,
-                   groupName,
-                   "$",
-                   "MKSTREAM");
-
-          redis::response<std::string> resp;
-          boost::system::error_code ec;
-
-          co_await m_conn->async_exec(
-              req,
-              resp,
-              asio::redirect_error(asio::use_awaitable, ec));
-
-          if (ec)
-          {
-            std::string msg = ec.message();
-            if (msg.find("BUSYGROUP") == std::string::npos)
-            {
-              throw std::runtime_error(
-                  make_ops_error(
-                      "XGROUP CREATE",
-                      stream,
-                      groupName,
-                      "(n/a)",
-                      msg,
-                      "Verify stream name and Redis ACL permissions"));
-            }
-            else
-            {
-              mt_logging::logger().log(
-                  {"Group already exists, continuing",
-                   mt_logging::LogLevel::Info,
-                   true});
-            }
-          }
-        }
-      }
+      co_await start_connection(ex); // one connection attempt
 
       set_state(ConnectionState::Ready, "Redis connection established");
-
       while (!m_shutting_down.load() && m_conn_alive.load())
       {
-        co_await asio::steady_timer(ex, std::chrono::milliseconds(200))
-            .async_wait(asio::use_awaitable);
+        asio::steady_timer t{ex};
+        t.expires_after(std::chrono::milliseconds(200));
+        co_await t.async_wait(asio::use_awaitable);
       }
 
       if (m_shutting_down.load())
@@ -453,13 +413,13 @@ namespace WorkQStream
       set_state(ConnectionState::Broken, "Connection dropped");
 
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
-
       set_state(ConnectionState::Reconnecting,
                 fmt::format("Reconnect attempt {} in {} seconds",
                             m_reconnect_count.load(), CONNECTION_RETRY_DELAY));
 
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
-          .async_wait(asio::use_awaitable);
+      asio::steady_timer delay{ex};
+      delay.expires_after(std::chrono::seconds(CONNECTION_RETRY_DELAY));
+      co_await delay.async_wait(asio::use_awaitable);
 
       if (CONNECTION_RETRY_AMOUNT != -1 &&
           m_reconnect_count.load() >= CONNECTION_RETRY_AMOUNT)
@@ -468,7 +428,61 @@ namespace WorkQStream
 
     set_state(ConnectionState::Shutdown, "Exiting co_main");
     m_signal_status.store(true);
-    m_run_finished.store(true);
+  }
+
+  asio::awaitable<void> Producer::start_connection(asio::any_io_executor ex)
+  {
+    if (m_shutting_down.load())
+      co_return;
+
+    // fresh connection per attempt
+    if (std::string(REDIS_USE_SSL) == "on")
+    {
+      asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
+      ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
+      load_certificates(ssl_ctx,
+                        "tls/ca.crt",
+                        "tls/redis.crt",
+                        "tls/redis.key");
+      ssl_ctx.set_verify_callback(verify_certificate);
+      m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
+    }
+    else
+    {
+      m_conn = std::make_shared<redis::connection>(ex);
+    }
+
+    set_state(ConnectionState::Connecting, "Starting async_run");
+    m_conn_alive.store(true);
+
+    redis::config cfg;
+    cfg.clientname = "redis_producer";
+    cfg.addr.host = REDIS_HOST;
+    cfg.addr.port = REDIS_PORT;
+    cfg.password = REDIS_PASSWORD;
+    if (std::string(REDIS_USE_SSL) == "on")
+      cfg.use_ssl = true;
+    cfg.health_check_interval = std::chrono::minutes(1);
+
+    m_conn->async_run(
+        cfg,
+        redis::logger{redis::logger::level::err},
+        asio::consign(asio::detached, [this]
+                      { m_conn_alive.store(false); }));
+
+    if (!co_await do_startup_ping(ex))
+      co_return; // don’t proceed to ensure_groups on failure
+
+    if (m_shutting_down.load() || !m_conn_alive.load())
+      co_return;
+
+    if (!co_await ensure_groups(ex))
+      co_return; // don’t mark Ready on failure
+
+    if (m_shutting_down.load() || !m_conn_alive.load())
+      co_return;
+
+    set_state(ConnectionState::Ready, "Redis connection established");
   }
 
   void Producer::set_state(ConnectionState new_state, std::string_view reason)
