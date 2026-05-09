@@ -3,6 +3,7 @@
 #include <mtlog/mt_log.hpp>
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 
 #ifdef HAVE_ASIO
 
@@ -78,6 +79,7 @@ namespace WorkQStream
     m_signal_status.store(false);
     m_shutting_down.store(false);
     m_conn_alive.store(false);
+    m_run_finished.store(false);
     m_reconnect_count.store(0);
     m_state.store(ConnectionState::Idle);
 
@@ -117,10 +119,13 @@ namespace WorkQStream
     if (m_conn)
     {
       asio::post(m_strand, [conn = m_conn]
-                 {
-        conn->cancel();
-        conn->reset_stream(); });
+                 { conn->cancel(); });
     }
+
+    // 2. Wait for co_main() to finish its loop and set m_run_finished
+    // std::cerr << "wait to finised\n";
+    // while (!m_run_finished.load())
+    //   std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     asio::post(m_strand, [this]
                { m_ioc.stop(); });
@@ -315,10 +320,11 @@ namespace WorkQStream
           redis::logger{redis::logger::level::err},
           asio::consign(asio::detached, [this]
                         {
-          if (m_shutting_down.load())
-            return;
-          set_state(ConnectionState::Broken, "async_run ended");
-          m_conn_alive.store(false); }));
+                          std::cerr << "async_run finished\n";
+                          // set_state(ConnectionState::Broken, "async_run ended");
+                          m_conn_alive.store(false);
+                          //
+                        }));
 
       // Startup PING with timeout
       {
@@ -462,6 +468,7 @@ namespace WorkQStream
 
     set_state(ConnectionState::Shutdown, "Exiting co_main");
     m_signal_status.store(true);
+    m_run_finished.store(true);
   }
 
   void Producer::set_state(ConnectionState new_state, std::string_view reason)
@@ -498,7 +505,6 @@ namespace WorkQStream
              : mt_logging::LogLevel::Info,
          true});
   }
-
 
 } // namespace WorkQStream
 

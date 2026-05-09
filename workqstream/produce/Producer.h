@@ -73,6 +73,7 @@ namespace WorkQStream
     std::atomic<bool> m_conn_alive{false};
     std::atomic<std::sig_atomic_t> m_reconnect_count{0};
     std::atomic<ConnectionState> m_state{ConnectionState::Idle};
+    std::atomic<bool> m_run_finished{false};
 
     static std::atomic<std::sig_atomic_t> MESSAGE_QUEUED_COUNT;
     static std::atomic<std::sig_atomic_t> MESSAGE_COUNT;
