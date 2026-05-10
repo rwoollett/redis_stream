@@ -100,8 +100,8 @@ int main(int argc, char **argv)
       }
       else
       {
-        doWork("ttt_player_Move", {{"postid", "c1234"}, {"postname", "category"}});
-        doWork("ttt_player_Move");
+        doWork("liveposts_post_Create", {{"postid", "c1234"}, {"postname", "category"}});
+        doWork("liveposts_post_Create");
       }
     }
   }
