@@ -1,6 +1,5 @@
 
-#ifndef LIB_REDIS_SUBSCRIBE_H_
-#define LIB_REDIS_SUBSCRIBE_H_
+#pragma once 
 
 #ifdef NDEBUG
 #define D(x)
@@ -113,4 +112,3 @@ namespace WorkQStream
 
 } /* namespace WorkQStream */
 #endif // HAVE_ASIO
-#endif /* LIB_REDIS_SUBSCRIBE_H_ */
