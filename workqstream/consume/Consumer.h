@@ -1,5 +1,5 @@
 
-#pragma once 
+#pragma once
 
 #ifdef NDEBUG
 #define D(x)
@@ -30,6 +30,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <thread>
+#include <future>
 #include <iostream>
 #include <workqstream/common/Common.h>
 
@@ -85,6 +86,7 @@ namespace WorkQStream
     virtual bool is_signal_stopped() { return (m_signal_status.load()); };
     bool is_redis_connected() { return (m_is_connected.load()); };
     void xack_now(std::string stream, std::string id);
+    std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
     void xpending_oldest_now(std::string stream, std::string group,
                              std::function<void(std::string)> callback);
     void send_to_dlq_now(std::string stream, std::string id,
@@ -98,6 +100,8 @@ namespace WorkQStream
     asio::awaitable<void> receiver();
     asio::awaitable<void> co_main();
     asio::awaitable<void> xack(std::string_view stream, std::string_view id);
+    asio::awaitable<boost::system::error_code> xack_wait(std::string_view stream, std::string_view id);
+
     asio::awaitable<void> xpending_oldest(std::string_view stream_view, std::string_view group,
                                           std::function<void(std::string)> callback);
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,

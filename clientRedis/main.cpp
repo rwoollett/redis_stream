@@ -87,9 +87,19 @@ int main(int argc, char **argv)
 
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
       }
+
       // if (ok)
       // {
-      redisSubscribe.xack_now(stream, id);
+      auto fut = redisSubscribe.xack_wait_now(stream, id);
+
+      // release lock ONLY after XACK is confirmed
+      auto ec = fut.get();
+
+      if (ec)
+      {
+        mt_logging::logger().log(
+            {fmt::format("XACK failed: {}", ec.message()), mt_logging::LogLevel::Info, true});
+      }
       // } else {
       //   redisSubscribe.send_to_dlq_now(stream, id, fields);
       // }

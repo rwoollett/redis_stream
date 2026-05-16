@@ -468,6 +468,28 @@ namespace WorkQStream
         });
   }
 
+  std::future<boost::system::error_code>
+  Consumer::xack_wait_now(std::string stream, std::string id)
+  {
+    auto p = std::make_shared<std::promise<boost::system::error_code>>();
+
+    asio::dispatch(
+        m_write_strand,
+        [this, stream = std::move(stream), id = std::move(id), p]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream = std::move(stream), id = std::move(id), p]() mutable -> asio::awaitable<void>
+              {
+                auto ec = co_await xack_wait(stream, id);
+                p->set_value(ec);
+              },
+              asio::detached);
+        });
+
+    return p->get_future();
+  }
+
   void Consumer::xpending_oldest_now(std::string stream,
                                      std::string group,
                                      std::function<void(std::string)> callback)
@@ -551,6 +573,26 @@ namespace WorkQStream
     co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
   }
 
+  asio::awaitable<boost::system::error_code> Consumer::xack_wait(std::string_view stream, std::string_view id)
+  {
+    redis::request req;
+    req.push("XACK", stream, WORKER_GROUP, id);
+
+    boost::system::error_code ec;
+    redis::ignore_t ignore;
+    mt_logging::logger().log(
+        {fmt::format("XACK wait work item:  [STREAM {}      ID {}]  WORKER GROUP {}", stream, id, WORKER_GROUP),
+         mt_logging::LogLevel::Info,
+         true});
+
+    co_await m_conn_write->async_exec(
+        req,
+        ignore,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    co_return ec;
+  }
+
   asio::awaitable<void> Consumer::xpending_oldest(std::string_view stream,
                                                   std::string_view group,
                                                   std::function<void(std::string)> callback)
@@ -582,8 +624,8 @@ namespace WorkQStream
     std::string oldest_xid;
     auto &p = pendings.at(0);
     mt_logging::logger().log(
-        {fmt::format(" - Oldest pending ID: {} consumer={} idle={} deliveries={}", 
-          p.id, p.consumer, p.idle_ms, p.delivery_count),
+        {fmt::format(" - Oldest pending ID: {} consumer={} idle={} deliveries={}",
+                     p.id, p.consumer, p.idle_ms, p.delivery_count),
          mt_logging::LogLevel::Debug,
          true});
     oldest_xid = p.id;
