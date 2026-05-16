@@ -81,15 +81,16 @@ int main(int argc, char **argv)
     while (!m_worker_shall_stop)
     {
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      std::cout << "Press any key to publish..." << std::endl;
+      char key = getch();
+      std::cerr << "[" << key << "]" << std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
       if (producer.is_signal_stopped())
       {
         m_worker_shall_stop = true;
         continue;
       }
-
-      std::cout << "Press any key to publish..." << std::endl;
-      char key = getch();
 
       if (argc > 1)
       {

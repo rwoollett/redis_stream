@@ -5,6 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <future>
 #include <iostream>
 #include <boost/redis/connection.hpp>
 #include <boost/asio/signal_set.hpp>
@@ -21,6 +22,7 @@ int main(int argc, char **argv)
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
   const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
+  const char *WORKER_GROUP = std::getenv("WORKER_GROUP");
 
   if (!(redis_host && redis_port && redis_password))
   {
@@ -69,6 +71,22 @@ int main(int argc, char **argv)
            true});
       bool ok = false; // process_job(stream, fields);
 
+      while (true)
+      {
+        std::promise<std::string> p;
+        auto f = p.get_future();
+
+        redisSubscribe.xpending_oldest_now(stream, std::string(WORKER_GROUP),
+                                           [&](std::string oldest)
+                                           { p.set_value(oldest); });
+
+        std::string oldest = f.get();
+
+        if (oldest == id)
+          break; // I am next in order
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      }
       // if (ok)
       // {
       redisSubscribe.xack_now(stream, id);

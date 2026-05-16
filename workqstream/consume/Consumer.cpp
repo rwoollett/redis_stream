@@ -468,6 +468,33 @@ namespace WorkQStream
         });
   }
 
+  void Consumer::xpending_oldest_now(std::string stream,
+                                     std::string group,
+                                     std::function<void(std::string)> callback)
+  {
+    if (m_signal_status.load())
+      return;
+
+    asio::dispatch(
+        m_write_strand,
+        [this,
+         stream = std::move(stream),
+         group = std::move(group),
+         callback = std::move(callback)]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this,
+               stream = std::move(stream),
+               group = std::move(group),
+               callback = std::move(callback)]() mutable -> asio::awaitable<void>
+              {
+                co_await xpending_oldest(stream, group, callback);
+              },
+              asio::detached);
+        });
+  }
+
   void Consumer::send_to_dlq_now(std::string stream,
                                  std::string id,
                                  std::unordered_map<std::string, std::string> fields)
@@ -522,6 +549,45 @@ namespace WorkQStream
          true});
 
     co_await m_conn_write->async_exec(req, redis::ignore, asio::use_awaitable);
+  }
+
+  asio::awaitable<void> Consumer::xpending_oldest(std::string_view stream,
+                                                  std::string_view group,
+                                                  std::function<void(std::string)> callback)
+  {
+    redis::request req;
+    req.push("XPENDING", stream, group, "-", "+", "1");
+
+    redis::generic_response resp;
+    boost::system::error_code ec;
+
+    co_await m_conn_write->async_exec(
+        req,
+        resp,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec)
+    {
+      callback(""); // no oldest xid
+      co_return;
+    }
+
+    auto pendings = parse_xpending(resp);
+    if (pendings.empty())
+    {
+      callback(""); // no oldest xid
+      co_return;
+    }
+
+    std::string oldest_xid;
+    auto &p = pendings.at(0);
+    mt_logging::logger().log(
+        {fmt::format(" - Oldest pending ID: {} consumer={} idle={} deliveries={}", 
+          p.id, p.consumer, p.idle_ms, p.delivery_count),
+         mt_logging::LogLevel::Debug,
+         true});
+    oldest_xid = p.id;
+    callback(oldest_xid);
   }
 
   asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,
