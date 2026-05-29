@@ -15,7 +15,7 @@ target_compile_features(WorkQConsume PUBLIC cxx_std_20)
 target_include_directories(WorkQConsume
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
-        $<INSTALL_INTERFACE:include/redis_stream>
+        $<INSTALL_INTERFACE:include/workqstream/consume>
     PRIVATE
         $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
 )
@@ -36,6 +36,6 @@ install(TARGETS WorkQConsume
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
-    DESTINATION include/redis_stream/consume
+    DESTINATION include/workqstream/consume
     FILES_MATCHING PATTERN "*.h"
 )
