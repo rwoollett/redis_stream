@@ -1,20 +1,33 @@
+file(GLOB WORKQ_COMMON_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+)
 
-add_library(WorkQCommon
-    json.h
-    Common.h
-    Groups.cpp
-    Groups.h
+add_library(WorkQCommon STATIC
+    ${WORKQ_COMMON_SOURCES}
 )
 
 add_library(WorkQStream::WorkQCommon ALIAS WorkQCommon)
 
-target_compile_features(WorkQCommon PUBLIC cxx_std_20)
-
 target_include_directories(WorkQCommon
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/../..      # <workqstream/...>
-    PRIVATE
-        $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<INSTALL_INTERFACE:include/workqstream/workqstream/common>
 )
 
+target_link_libraries(WorkQCommon
+    PUBLIC
+        MTLog::MTLog
+)
 
+install(TARGETS WorkQCommon
+    EXPORT WorkQStreamTargets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
+    DESTINATION include/workqstream/workqstream/common
+    FILES_MATCHING PATTERN "*.h"
+)

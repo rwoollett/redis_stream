@@ -34,31 +34,18 @@ set(Boost_NO_BOOST_CMAKE ON)
 set(BOOST_ROOT /usr/local)
 find_package(Boost 1.86 REQUIRED)
 
+find_package(MTLog REQUIRED)
+find_package(fmt REQUIRED)
+
 option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
-
-include(FetchContent)
-# refetch
-FetchContent_Declare(
-    MTLog
-    GIT_REPOSITORY https://github.com/rwoollett/mtlog.git
-    GIT_TAG master
-)
-
-FetchContent_MakeAvailable(MTLog)
 
 add_subdirectory(workqstream/common)
 add_subdirectory(workqstream/consume)
 add_subdirectory(workqstream/produce)
 
 if (BUILD_WORKQ_TESTS)
-
-  FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.11.3
-  )
-  FetchContent_MakeAvailable(nlohmann_json)
-
+  find_package(nlohmann_json REQUIRED)
+  find_package(fmt REQUIRED)
   target_link_libraries(WorkQProduce PUBLIC
     nlohmann_json::nlohmann_json 
   )
@@ -69,6 +56,35 @@ if (BUILD_WORKQ_TESTS)
   add_subdirectory(clientRedis)
   add_subdirectory(clientProducer)
 endif()
+
+# -----------------------------
+# PACKAGE CONFIG EXPORT
+# -----------------------------
+include(CMakePackageConfigHelpers)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/WorkQStreamConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorkQStreamConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/WorkQStreamConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/WorkQStream
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/WorkQStreamConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/WorkQStreamConfigVersion.cmake"
+    DESTINATION lib/cmake/WorkQStream
+)
+
+install(EXPORT WorkQStreamTargets
+    FILE WorkQStreamTargets.cmake
+    NAMESPACE WorkQStream::
+    DESTINATION lib/cmake/WorkQStream
+)
 
 
 

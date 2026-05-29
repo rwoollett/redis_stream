@@ -1,6 +1,7 @@
 ﻿boost_1_86_0
 *.tar.gz
 scratch.txt
+build-release
 .env
 /.idea/
 /.vs/

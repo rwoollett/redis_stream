@@ -1,6 +1,10 @@
-add_library(WorkQProduce
-    Producer.cpp
-    Producer.h
+file(GLOB WORKQ_PRODUCE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+)
+
+add_library(WorkQProduce STATIC
+    ${WORKQ_PRODUCE_SOURCES}
 )
 
 add_library(WorkQStream::WorkQProduce ALIAS WorkQProduce)
@@ -9,16 +13,27 @@ target_compile_features(WorkQProduce PUBLIC cxx_std_20)
 
 target_include_directories(WorkQProduce
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/../..      # <workqstream/...>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
+        $<INSTALL_INTERFACE:include/workqstream>
     PRIVATE
         $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
 )
 
-target_link_libraries(WorkQProduce 
-    PUBLIC 
-      MTLog
-    PRIVATE 
-      WorkQCommon
+target_link_libraries(WorkQProduce
+    PUBLIC
+        MTLog::MTLog
+    PRIVATE
+        WorkQStream::WorkQCommon
 )
 
+install(TARGETS WorkQProduce
+    EXPORT WorkQStreamTargets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
 
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
+    DESTINATION include/workqstream/workqstream/produce
+    FILES_MATCHING PATTERN "*.h"
+)

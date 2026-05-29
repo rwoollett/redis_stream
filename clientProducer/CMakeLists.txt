@@ -10,5 +10,10 @@ target_include_directories(ClientProducer PRIVATE
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(ClientProducer PRIVATE Threads::Threads OpenSSL::SSL OpenSSL::Crypto WorkQProduce)
+target_link_libraries(ClientProducer PRIVATE 
+  Threads::Threads 
+  OpenSSL::SSL 
+  OpenSSL::Crypto WorkQProduce
+  fmt::fmt
+)
 
