@@ -14,7 +14,7 @@ target_compile_features(WorkQProduce PUBLIC cxx_std_20)
 target_include_directories(WorkQProduce
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
-        $<INSTALL_INTERFACE:include/workqstream>
+        $<INSTALL_INTERFACE:include/redis_stream>
     PRIVATE
         $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
 )
@@ -35,6 +35,6 @@ install(TARGETS WorkQProduce
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
-    DESTINATION include/workqstream/workqstream/produce
+    DESTINATION include/redis_stream/produce
     FILES_MATCHING PATTERN "*.h"
 )
