@@ -18,6 +18,7 @@ target_include_directories(WorkQCommon
 target_link_libraries(WorkQCommon
     PUBLIC
         MTLog::MTLog
+        nlohmann_json::nlohmann_json
 )
 
 install(TARGETS WorkQCommon

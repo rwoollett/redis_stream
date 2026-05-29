@@ -34,6 +34,7 @@ set(Boost_NO_BOOST_CMAKE ON)
 set(BOOST_ROOT /usr/local)
 find_package(Boost 1.86 REQUIRED)
 
+find_package(nlohmann_json REQUIRED)
 find_package(MTLog REQUIRED)
 find_package(fmt REQUIRED)
 
