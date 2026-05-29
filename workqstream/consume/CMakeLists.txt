@@ -23,6 +23,7 @@ target_include_directories(WorkQConsume
 target_link_libraries(WorkQConsume
     PUBLIC
         MTLog::MTLog
+        nlohmann_json::nlohmann_json
     PRIVATE
         WorkQStream::WorkQCommon
 )
