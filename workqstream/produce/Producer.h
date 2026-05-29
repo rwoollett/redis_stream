@@ -13,7 +13,7 @@
 #include <map>
 #include <vector>
 #include <string>
-#include <workqstream/common/Common.h>
+#include <redis_stream/common/Common.h>
 
 #ifdef HAVE_ASIO
 
