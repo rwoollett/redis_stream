@@ -25,7 +25,7 @@
       "binaryDir": "build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_WORKQ_TESTS": "ON",
+        "BUILD_WORKQ_TESTS": "OFF",
         "CMAKE_INSTALL_PREFIX": "/usr/local"
       }
     },
