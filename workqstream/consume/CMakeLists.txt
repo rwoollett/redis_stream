@@ -28,6 +28,16 @@ target_link_libraries(WorkQConsume
         WorkQStream::WorkQCommon
 )
 
+if (WIN32)
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(WorkQConsume
+        PRIVATE
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            ws2_32
+    )
+endif()
+
 install(TARGETS WorkQConsume
     EXPORT WorkQStreamTargets
     ARCHIVE DESTINATION lib

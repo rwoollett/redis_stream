@@ -10,6 +10,7 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/ssl/context.hpp>
+#include <boost/asio/consign.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/redis/request.hpp>
 #include <boost/redis/response.hpp>
@@ -32,9 +33,9 @@ namespace WorkQStream
     const int PRODUCE_TIMEOUT_DELAY = 2;
   }
 
-  std::atomic<std::sig_atomic_t> Producer::MESSAGE_QUEUED_COUNT{0};
-  std::atomic<std::sig_atomic_t> Producer::MESSAGE_COUNT{0};
-  std::atomic<std::sig_atomic_t> Producer::MESSAGE_SUCCESS_COUNT{0};
+  std::atomic<sig_atomic_t> Producer::MESSAGE_QUEUED_COUNT{0};
+  std::atomic<sig_atomic_t> Producer::MESSAGE_COUNT{0};
+  std::atomic<sig_atomic_t> Producer::MESSAGE_SUCCESS_COUNT{0};
 
   auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
@@ -445,11 +446,18 @@ namespace WorkQStream
                         "tls/redis.crt",
                         "tls/redis.key");
       ssl_ctx.set_verify_callback(verify_certificate);
-      m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
+      m_conn = std::make_shared<redis::connection>(
+        ex, 
+        std::move(ssl_ctx),
+        redis::logger{redis::logger::level::err}
+      );
     }
     else
     {
-      m_conn = std::make_shared<redis::connection>(ex);
+      m_conn = std::make_shared<redis::connection>(
+        ex,
+        redis::logger{redis::logger::level::err}
+      );
     }
 
     set_state(ConnectionState::Connecting, "Starting async_run");
@@ -466,7 +474,6 @@ namespace WorkQStream
 
     m_conn->async_run(
         cfg,
-        redis::logger{redis::logger::level::err},
         asio::consign(asio::detached, [this]
                       { m_conn_alive.store(false); }));
 

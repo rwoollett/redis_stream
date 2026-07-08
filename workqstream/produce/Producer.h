@@ -70,12 +70,12 @@ namespace WorkQStream
     std::atomic<bool> m_signal_status{false};
     std::atomic<bool> m_shutting_down{false};
     std::atomic<bool> m_conn_alive{false};
-    std::atomic<std::sig_atomic_t> m_reconnect_count{0};
+    std::atomic<sig_atomic_t> m_reconnect_count{0};
     std::atomic<ConnectionState> m_state{ConnectionState::Idle};
 
-    static std::atomic<std::sig_atomic_t> MESSAGE_QUEUED_COUNT;
-    static std::atomic<std::sig_atomic_t> MESSAGE_COUNT;
-    static std::atomic<std::sig_atomic_t> MESSAGE_SUCCESS_COUNT;
+    static std::atomic<sig_atomic_t> MESSAGE_QUEUED_COUNT;
+    static std::atomic<sig_atomic_t> MESSAGE_COUNT;
+    static std::atomic<sig_atomic_t> MESSAGE_SUCCESS_COUNT;
 
   private:
     asio::awaitable<void> co_main();

@@ -350,13 +350,13 @@ namespace WorkQStream
         load_certificates(ssl_ctx_write, "tls/ca.crt", /** Your self-signed CA*/ "tls/redis.crt", /** Your client certificate*/ "tls/redis.key" /** Your private key */);
         ssl_ctx_read.set_verify_callback(verify_certificate);
         ssl_ctx_write.set_verify_callback(verify_certificate);
-        m_conn_read = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_read));
-        m_conn_write = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_write));
+        m_conn_read = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_read), redis::logger{redis::logger::level::err});
+        m_conn_write = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_write), redis::logger{redis::logger::level::err});
       }
       else
       {
-        m_conn_read = std::make_shared<redis::connection>(ex);
-        m_conn_write = std::make_shared<redis::connection>(ex);
+        m_conn_read = std::make_shared<redis::connection>(ex, redis::logger{redis::logger::level::err});
+        m_conn_write = std::make_shared<redis::connection>(ex, redis::logger{redis::logger::level::err});
       }
 
       redis::config cfg;
@@ -372,7 +372,6 @@ namespace WorkQStream
       cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
       m_conn_read->async_run(
           cfg,
-          redis::logger{redis::logger::level::err},
           [self = m_conn_read](boost::system::error_code ec)
           {
             mt_logging::logger().log(
@@ -383,7 +382,6 @@ namespace WorkQStream
       cfg.clientname = "redis_consumer_write";
       m_conn_write->async_run(
           cfg,
-          redis::logger{redis::logger::level::err},
           [self = m_conn_write](boost::system::error_code ec)
           {
             mt_logging::logger().log(

@@ -27,6 +27,16 @@ target_link_libraries(WorkQProduce
         WorkQStream::WorkQCommon
 )
 
+if (WIN32)
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(WorkQProduce
+        PRIVATE
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            ws2_32
+    )
+endif()
+
 install(TARGETS WorkQProduce
     EXPORT WorkQStreamTargets
     ARCHIVE DESTINATION lib

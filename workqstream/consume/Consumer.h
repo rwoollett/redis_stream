@@ -70,8 +70,8 @@ namespace WorkQStream
     std::thread m_receiver_thread;
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
-    std::atomic<std::sig_atomic_t> m_cstoken_message_count;
-    std::atomic<std::sig_atomic_t> m_reconnect_count;
+    std::atomic<sig_atomic_t> m_cstoken_message_count;
+    std::atomic<sig_atomic_t> m_reconnect_count;
     std::string m_worker_id;
     GroupConfigMap m_group_config{};
     std::unordered_set<std::string> m_valid_streams{};

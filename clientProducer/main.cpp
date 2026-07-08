@@ -7,21 +7,32 @@
 #include "../workqstream/produce/Producer.h"
 #include <boost/redis/src.hpp>
 #include <mtlog/mt_log.hpp>
-#include <termios.h>
-#include <unistd.h>
 
-char getch()
+#if defined(_WIN32)
+    #include <conio.h>
+    // Windows console handling
+#else
+    #include <termios.h>
+    #include <unistd.h>
+    // POSIX console handling
+#endif
+
+char read_getch()
 {
-  termios oldt, newt;
-  tcgetattr(STDIN_FILENO, &oldt); // save old settings
-  newt = oldt;
-  newt.c_lflag &= ~(ICANON | ECHO); // disable buffering + echo
-  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+#if defined(_WIN32)
+    return _getch();
+#else
+    termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
-  char c = getchar(); // read one char
+    char c = getchar();
 
-  tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // restore settings
-  return c;
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return c;
+#endif
 }
 
 int main(int argc, char **argv)
@@ -82,7 +93,7 @@ int main(int argc, char **argv)
     {
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
       std::cout << "Press any key to publish..." << std::endl;
-      char key = getch();
+      char key = read_getch();
       std::cerr << "[" << key << "]" << std::endl;
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
