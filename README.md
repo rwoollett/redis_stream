@@ -28,9 +28,13 @@ cmake -DCMAKE_BUILD_TYPE=ValgrindDebug -DBUILD_WORKQ_TESTS=ON -DCMAKE_INSTALL_PR
 ## 🧪 install
 # Install Release 
 
-Use build-release folder.
-cmake -B build-release -DCMAKE_BUILD_TYPE=Release
-sudo cmake --build build-release --target install
+Ubuntu/Linux: Use build/release folder.
+cmake -B build/release -DCMAKE_BUILD_TYPE=Release
+sudo cmake --build build/release --target install
+
+Windows:
+cmake --preset windows-release
+cmake --build build/windows-release --target install
 
 
 ## 🧪 test
