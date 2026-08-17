@@ -2,14 +2,15 @@
 #define REDISCLIENT_AWAKENER_WAITABLE_H_
 
 #include "../workqstream/consume/Consumer.h"
+#include <mtlog/mt_log.hpp>
 #include <queue>
 
-struct WorkItem {
+struct WorkItem
+{
   std::string stream;
   std::string id;
   std::unordered_map<std::string, std::string> fields;
 };
-
 
 class AwakenerWaitable : public WorkQStream::Awakener
 {
@@ -19,10 +20,9 @@ class AwakenerWaitable : public WorkQStream::Awakener
   std::queue<WorkItem> m_work_queue;
 
 public:
-  AwakenerWaitable():shall_stop_awaken{false},m_work_queue{}, WorkQStream::Awakener()
-  {
-  };
-  ~AwakenerWaitable() 
+  AwakenerWaitable() : shall_stop_awaken{false}, m_work_queue{}, WorkQStream::Awakener() {
+                       };
+  ~AwakenerWaitable()
   {
     std::cerr << "Size awakener work queue " << m_work_queue.size() << std::endl;
   };
@@ -34,9 +34,8 @@ public:
   WorkItem wait_broadcast()
   {
     std::unique_lock<std::mutex> cl(m_class_lock);
-    m_cond_not_awake.wait(cl, [this] {
-      return !m_work_queue.empty() || shall_stop_awaken;
-    });
+    m_cond_not_awake.wait(cl, [this]
+                          { return !m_work_queue.empty() || shall_stop_awaken; });
 
     if (shall_stop_awaken && m_work_queue.empty())
       return {}; // or some sentinel
@@ -63,16 +62,19 @@ public:
     work_item.stream = std::move(stream_name);
     work_item.id = std::move(message_id);
     work_item.fields.reserve(fields.size());
-    for (auto& [k, v] : fields)
-        work_item.fields.emplace(k, v);
+    for (auto &[k, v] : fields)
+      work_item.fields.emplace(k, v);
 
     {
+      mt_logging::logger().log(
+          {fmt::format("- broadcast_single work item: [STREAM {}       ID {}]  Fields: {}", work_item.stream, work_item.id, fmt::join(work_item.fields, ", ")),
+           mt_logging::LogLevel::Info,
+           true});
+
       std::unique_lock<std::mutex> cl(m_class_lock);
       m_work_queue.push(work_item);
-
     }
     m_cond_not_awake.notify_one();
-    
   }
 
   virtual void stop()

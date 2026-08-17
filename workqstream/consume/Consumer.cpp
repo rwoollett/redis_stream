@@ -83,6 +83,7 @@ namespace WorkQStream
   Consumer::Consumer(
       const std::string &workerId,
       Awakener &awakener) : m_ioc{3},
+                            m_signals(m_ioc.get_executor()),
                             m_awakener(awakener),
                             m_conn_read{},
                             m_conn_write{},
@@ -124,8 +125,14 @@ namespace WorkQStream
 
   Consumer::~Consumer()
   {
+    mt_logging::logger().log(
+        {"Redis Consumer destroying",
+         mt_logging::LogLevel::Debug, true});
     request_stop();
     join();
+    mt_logging::logger().log(
+        {"Redis Consumer destroyed",
+         mt_logging::LogLevel::Debug, true});
   }
 
   void Consumer::request_stop()
@@ -166,17 +173,17 @@ namespace WorkQStream
           {fmt::format("Ensuring group {} exists on stream {}", WORKER_GROUP, stream),
            mt_logging::LogLevel::Info,
            true});
-
+        
       redis::request req;
       req.push("XGROUP", "CREATE",
                stream,
                WORKER_GROUP,
                "0",
                "MKSTREAM");
-      // req.get_config().cancel_if_not_connected = true;
 
       redis::response<std::string> resp;
       boost::system::error_code ec;
+      
       co_await m_conn_write->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
       if (ec)
       {
@@ -322,13 +329,14 @@ namespace WorkQStream
     }
   }
 
-  void Consumer::setup_signals(const boost::asio::any_io_executor &ex)
+  void Consumer::setup_signals()
   {
-    boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
+    m_signals.add(SIGINT);
+    m_signals.add(SIGTERM);
 #if defined(SIGQUIT)
-    sig_set.add(SIGQUIT);
+    m_signals.add(SIGQUIT);
 #endif
-    sig_set.async_wait(
+    m_signals.async_wait(
         [&](const boost::system::error_code &, int)
         {
           m_signal_status.store(true);
@@ -475,7 +483,8 @@ namespace WorkQStream
           {fmt::format("run_normal_mode 2 id:  {}", m_worker_id),
            mt_logging::LogLevel::Info,
            true});
-      // co_await asio::steady_timer(ex, std::chrono::milliseconds(200)).async_wait(asio::use_awaitable);
+
+      co_await asio::steady_timer(ex, std::chrono::milliseconds(200)).async_wait(asio::use_awaitable);
       mt_logging::logger().log(
           {fmt::format("run_normal_mode after timer id:  {}", m_worker_id),
            mt_logging::LogLevel::Info,
@@ -486,11 +495,13 @@ namespace WorkQStream
             {fmt::format("run_normal_mode before 3 id:  {}", m_worker_id),
              mt_logging::LogLevel::Info,
              true});
+
         co_await ensure_group_exists();
         mt_logging::logger().log(
             {fmt::format("run_normal_mode 3 id:  {}", m_worker_id),
              mt_logging::LogLevel::Info,
              true});
+
         co_await receiver(); // XREADGROUP
         mt_logging::logger().log(
             {fmt::format("run_normal_mode 4 id:  {}", m_worker_id),
@@ -542,8 +553,7 @@ namespace WorkQStream
            mt_logging::LogLevel::Info,
            true});
 
-      setup_signals(ex);
-
+      setup_signals();
       setup_connections(ex);
 
       // co_await ensure_group_exists();
@@ -577,8 +587,8 @@ namespace WorkQStream
           {fmt::format("co_main fatal error: {}", e.what()),
            mt_logging::LogLevel::Error,
            true});
-      m_signal_status.store(true);
-      m_awakener.stop();
+      // m_signal_status.store(true);
+      // m_awakener.stop();
     }
   }
 

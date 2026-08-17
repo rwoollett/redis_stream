@@ -62,11 +62,11 @@ namespace WorkQStream
   class Consumer
   {
     asio::io_context m_ioc;
+    boost::asio::signal_set m_signals;
     Awakener &m_awakener;
     std::shared_ptr<redis::connection> m_conn_read;
     std::shared_ptr<redis::connection> m_conn_write;
     asio::strand<asio::io_context::executor_type> m_write_strand;
-
     std::thread m_receiver_thread;
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
@@ -83,7 +83,7 @@ namespace WorkQStream
     /// Deconstructor
     virtual ~Consumer();
 
-    virtual bool is_signal_stopped() { return (m_signal_status.load() == true); };
+    virtual bool is_signal_stopped() { return m_signal_status.load(); };
     bool is_redis_connected() { return (m_is_connected.load()); };
     void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
@@ -96,7 +96,7 @@ namespace WorkQStream
     void join();
 
   private:
-    void setup_signals(const boost::asio::any_io_executor &ex);
+    void setup_signals();
     void setup_connections(const boost::asio::any_io_executor &ex);
     std::shared_ptr<redis::connection> make_connection(
         const boost::asio::any_io_executor &ex,
@@ -120,6 +120,7 @@ namespace WorkQStream
     asio::awaitable<void> trim_stream(std::string stream);
 
     void read_stream(const redis::generic_response &resp);
+    
   };
 
 } /* namespace WorkQStream */
