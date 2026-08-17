@@ -173,7 +173,7 @@ namespace WorkQStream
                WORKER_GROUP,
                "0",
                "MKSTREAM");
-      req.get_config().cancel_if_not_connected = true;
+      // req.get_config().cancel_if_not_connected = true;
 
       redis::response<std::string> resp;
       boost::system::error_code ec;
@@ -181,7 +181,22 @@ namespace WorkQStream
       if (ec)
       {
         std::string msg = ec.message();
-        if (msg.find("BUSYGROUP") == std::string::npos)
+        if (msg.find("BUSYGROUP") != std::string::npos)
+        {
+          mt_logging::logger().log(
+              {"Group already exists, continuing",
+               mt_logging::LogLevel::Warn,
+               true});
+        }
+        else if (msg.find("Not connected") != std::string::npos)
+        {
+          mt_logging::logger().log(
+              {"ensure_group_exists: Not connected, will retry later",
+               mt_logging::LogLevel::Warn,
+               true});
+          co_return; // let run_normal_mode / reconnect loop handle it
+        }
+        else
         {
           throw std::runtime_error(
               make_ops_error(
@@ -192,13 +207,26 @@ namespace WorkQStream
                   msg,
                   "Verify stream name and Redis ACL permissions"));
         }
-        else
-        {
-          mt_logging::logger().log(
-              {"Group already exists, continuing",
-               mt_logging::LogLevel::Warn,
-               true});
-        }
+
+        // std::string msg = ec.message();
+        // if (msg.find("BUSYGROUP") == std::string::npos)
+        // {
+        //   throw std::runtime_error(
+        //       make_ops_error(
+        //           "XGROUP CREATE",
+        //           stream,
+        //           WORKER_GROUP,
+        //           "(n/a)",
+        //           msg,
+        //           "Verify stream name and Redis ACL permissions"));
+        // }
+        // else
+        // {
+        //   mt_logging::logger().log(
+        //       {"Group already exists, continuing",
+        //        mt_logging::LogLevel::Warn,
+        //        true});
+        // }
       }
     }
   }
@@ -294,26 +322,8 @@ namespace WorkQStream
     }
   }
 
-  auto Consumer::co_main() -> asio::awaitable<void>
+  void Consumer::setup_signals(const boost::asio::any_io_executor &ex)
   {
-    auto ex = co_await asio::this_coro::executor;
-    // redis::config cfg;
-    // cfg.clientname = "redis_consumer";
-    // cfg.addr.host = REDIS_HOST;
-    // cfg.addr.port = REDIS_PORT;
-    // cfg.password = REDIS_PASSWORD;
-    // if (std::string(REDIS_USE_SSL) == "on")
-    // {
-    //   cfg.use_ssl = true;
-    // }
-    // // minute health check:
-    // cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
-
-    mt_logging::logger().log(
-        {fmt::format("Worker id:  {}", m_worker_id),
-         mt_logging::LogLevel::Info,
-         true});
-
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
@@ -332,85 +342,160 @@ namespace WorkQStream
             m_conn_write->cancel();
           }
         });
+  }
 
-    // bool should_reconnect = false;
+  void Consumer::setup_connections(const boost::asio::any_io_executor &ex)
+  {
+    auto use_ssl = std::string(REDIS_USE_SSL) == "on";
+    m_conn_read = make_connection(ex, use_ssl);
+    m_conn_write = make_connection(ex, use_ssl);
+
+    redis::config cfg_read;
+    // cfg_read.clientname = "redis_consumer_read";
+    cfg_read.addr.host = REDIS_HOST;
+    cfg_read.addr.port = REDIS_PORT;
+    cfg_read.password = REDIS_PASSWORD;
+    cfg_read.use_ssl = use_ssl;
+    // minute health check:
+    cfg_read.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
+    m_conn_read->async_run(
+        cfg_read,
+        [self = m_conn_read](boost::system::error_code ec)
+        {
+          mt_logging::logger().log(
+              {fmt::format("[m_conn_read async_run] ended: {}", ec.message()),
+               mt_logging::LogLevel::Error,
+               true});
+        });
+    redis::config cfg_write;
+    // cfg_write.clientname = "redis_consumer_write";
+    cfg_write.addr.host = REDIS_HOST;
+    cfg_write.addr.port = REDIS_PORT;
+    cfg_write.password = REDIS_PASSWORD;
+    cfg_write.use_ssl = use_ssl;
+    // minute health check:
+    cfg_write.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
+    m_conn_write->async_run(
+        cfg_write,
+        [self = m_conn_write](boost::system::error_code ec)
+        {
+          mt_logging::logger().log(
+              {fmt::format("[m_conn_write async_run] ended: {}", ec.message()),
+               mt_logging::LogLevel::Error,
+               true});
+        });
+  }
+
+  auto Consumer::handle_reconnect() -> asio::awaitable<void>
+  {
+    auto ex = co_await asio::this_coro::executor;
+
+    m_is_connected.store(false);
+    m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
+
+    mt_logging::logger().log(
+        {fmt::format("Consumer receiver exited {} times, reconnecting in {} seconds...",
+                     m_reconnect_count.load(),
+                     CONNECTION_RETRY_DELAY),
+         mt_logging::LogLevel::Info,
+         true});
+
+    co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
+  }
+
+  std::shared_ptr<redis::connection> Consumer::make_connection(
+      const boost::asio::any_io_executor &ex,
+      bool use_ssl)
+  {
+    if (use_ssl)
+    {
+      mt_logging::logger().log(
+          {fmt::format("make_connection 1 use_ssl  {}", use_ssl),
+           mt_logging::LogLevel::Info,
+           true});
+
+      asio::ssl::context ctx{asio::ssl::context::tlsv12_client};
+      ctx.set_verify_mode(asio::ssl::verify_peer);
+      /** Your self-signed CA, Your client certificate, Your private key */
+      load_certificates(ctx, "tls/ca.crt", "tls/redis.crt", "tls/redis.key");
+      ctx.set_verify_callback(verify_certificate);
+      return std::make_shared<redis::connection>(ex, std::move(ctx), redis::logger{redis::logger::level::err});
+    }
+    else
+    {
+      return std::make_shared<redis::connection>(ex, redis::logger{redis::logger::level::err});
+    }
+  }
+
+  auto Consumer::run_recovery_mode() -> asio::awaitable<void>
+  {
+    std::vector<asio::awaitable<void>> tasks;
+
+    for (const auto &stream : m_valid_streams)
+    {
+      tasks.push_back(recover_pending(stream));
+      tasks.push_back(trim_stream(stream));
+    }
+
+    // Wait for all tasks to finish
+    for (auto &t : tasks)
+      co_await std::move(t);
+
+    co_return;
+    // for (const auto &stream : m_valid_streams)
+    // {
+    //   asio::co_spawn(
+    //       m_ioc,
+    //       recover_pending(stream),
+    //       asio::detached);
+    //   asio::co_spawn(
+    //       m_ioc,
+    //       trim_stream(stream),
+    //       asio::detached);
+    // }
+  }
+
+  auto Consumer::run_normal_mode() -> asio::awaitable<void>
+  {
+    auto ex = co_await asio::this_coro::executor;
+
     for (;;)
     {
+      mt_logging::logger().log(
+          {fmt::format("run_normal_mode 1 id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
+
       if (m_signal_status.load())
       {
         co_return;
       }
-      if (std::string(REDIS_USE_SSL) == "on")
-      {
-        asio::ssl::context ssl_ctx_read{asio::ssl::context::tlsv12_client};
-        asio::ssl::context ssl_ctx_write{asio::ssl::context::tlsv12_client};
-        ssl_ctx_read.set_verify_mode(asio::ssl::verify_peer);
-        ssl_ctx_write.set_verify_mode(asio::ssl::verify_peer);
-        load_certificates(ssl_ctx_read, "tls/ca.crt", /** Your self-signed CA*/ "tls/redis.crt", /** Your client certificate*/ "tls/redis.key" /** Your private key */);
-        load_certificates(ssl_ctx_write, "tls/ca.crt", /** Your self-signed CA*/ "tls/redis.crt", /** Your client certificate*/ "tls/redis.key" /** Your private key */);
-        ssl_ctx_read.set_verify_callback(verify_certificate);
-        ssl_ctx_write.set_verify_callback(verify_certificate);
-        m_conn_read = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_read), redis::logger{redis::logger::level::err});
-        m_conn_write = std::make_shared<redis::connection>(ex, std::move(ssl_ctx_write), redis::logger{redis::logger::level::err});
-      }
-      else
-      {
-        m_conn_read = std::make_shared<redis::connection>(ex, redis::logger{redis::logger::level::err});
-        m_conn_write = std::make_shared<redis::connection>(ex, redis::logger{redis::logger::level::err});
-      }
 
-      redis::config cfg;
-      cfg.clientname = "redis_consumer_read";
-      cfg.addr.host = REDIS_HOST;
-      cfg.addr.port = REDIS_PORT;
-      cfg.password = REDIS_PASSWORD;
-      if (std::string(REDIS_USE_SSL) == "on")
-      {
-        cfg.use_ssl = true;
-      }
-      // minute health check:
-      cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
-      m_conn_read->async_run(
-          cfg,
-          [self = m_conn_read](boost::system::error_code ec)
-          {
-            mt_logging::logger().log(
-                {fmt::format("[m_conn_read async_run] ended: {}", ec.message()),
-                 mt_logging::LogLevel::Error,
-                 true});
-          });
-      cfg.clientname = "redis_consumer_write";
-      m_conn_write->async_run(
-          cfg,
-          [self = m_conn_write](boost::system::error_code ec)
-          {
-            mt_logging::logger().log(
-                {fmt::format("[m_conn_write async_run] ended: {}", ec.message()),
-                 mt_logging::LogLevel::Error,
-                 true});
-          });
-
-      if (std::string(WORKER_RECOVER_PENDING) == "on")
-      {
-        for (const auto &stream : m_valid_streams)
-        {
-          asio::co_spawn(
-              m_ioc,
-              recover_pending(stream),
-              asio::detached);
-          asio::co_spawn(
-              m_ioc,
-              trim_stream(stream),
-              asio::detached);
-        }
-      }
-
-      co_await asio::steady_timer(co_await asio::this_coro::executor, std::chrono::milliseconds(500)).async_wait(asio::use_awaitable);
-
+      mt_logging::logger().log(
+          {fmt::format("run_normal_mode 2 id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
+      // co_await asio::steady_timer(ex, std::chrono::milliseconds(200)).async_wait(asio::use_awaitable);
+      mt_logging::logger().log(
+          {fmt::format("run_normal_mode after timer id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
       try
       {
+        mt_logging::logger().log(
+            {fmt::format("run_normal_mode before 3 id:  {}", m_worker_id),
+             mt_logging::LogLevel::Info,
+             true});
         co_await ensure_group_exists();
-        co_await receiver();
+        mt_logging::logger().log(
+            {fmt::format("run_normal_mode 3 id:  {}", m_worker_id),
+             mt_logging::LogLevel::Info,
+             true});
+        co_await receiver(); // XREADGROUP
+        mt_logging::logger().log(
+            {fmt::format("run_normal_mode 4 id:  {}", m_worker_id),
+             mt_logging::LogLevel::Info,
+             true});
       }
       catch (const std::exception &e)
       {
@@ -419,22 +504,19 @@ namespace WorkQStream
              mt_logging::LogLevel::Error,
              true});
       }
+
       if (m_signal_status.load())
       {
         co_return;
       }
 
-      m_is_connected.store(false);
-      m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
+      co_await handle_reconnect();
 
-      mt_logging::logger().log(
-          {fmt::format("Consumer receiver exited {} times, reconnecting in {} seconds...",
-                       m_reconnect_count.load(),
-                       CONNECTION_RETRY_DELAY),
-           mt_logging::LogLevel::Info,
-           true});
-
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
+      // if (CONNECTION_RETRY_AMOUNT != -1 &&
+      //     m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
+      // {
+      //   break;
+      // }
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
@@ -442,9 +524,62 @@ namespace WorkQStream
       {
         break;
       }
+      setup_connections(ex);
     }
-    m_signal_status.store(true);
-    m_awakener.stop();
+
+    co_return;
+  }
+
+  auto Consumer::co_main() -> asio::awaitable<void>
+  {
+    try
+    {
+      auto ex = co_await asio::this_coro::executor;
+      m_signal_status.store(false);
+
+      mt_logging::logger().log(
+          {fmt::format("Worker id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
+
+      setup_signals(ex);
+
+      setup_connections(ex);
+
+      // co_await ensure_group_exists();
+      mt_logging::logger().log(
+          {fmt::format("33Worker id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
+
+      if (std::string(WORKER_RECOVER_PENDING) == "on")
+      {
+        co_await run_recovery_mode();
+        co_return;
+      }
+
+      mt_logging::logger().log(
+          {fmt::format("running normal mode id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
+      co_await run_normal_mode();
+      mt_logging::logger().log(
+          {fmt::format("after cpowait normalWorker id:  {}", m_worker_id),
+           mt_logging::LogLevel::Info,
+           true});
+
+      // m_signal_status.store(true);
+      // m_awakener.stop();
+    }
+    catch (const std::exception &e)
+    {
+      mt_logging::logger().log(
+          {fmt::format("co_main fatal error: {}", e.what()),
+           mt_logging::LogLevel::Error,
+           true});
+      m_signal_status.store(true);
+      m_awakener.stop();
+    }
   }
 
   void Consumer::xack_now(std::string stream, std::string id)

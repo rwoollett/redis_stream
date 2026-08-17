@@ -90,15 +90,18 @@ int main(int argc, char **argv)
 
       // if (ok)
       // {
-      auto fut = redisSubscribe.xack_wait_now(stream, id);
-
-      // release lock ONLY after XACK is confirmed
-      auto ec = fut.get();
-
-      if (ec)
+      if (stream == "liveposts_post_Create")
       {
-        mt_logging::logger().log(
-            {fmt::format("XACK failed: {}", ec.message()), mt_logging::LogLevel::Info, true});
+        auto fut = redisSubscribe.xack_wait_now(stream, id);
+
+        // release lock ONLY after XACK is confirmed
+        auto ec = fut.get();
+
+        if (ec)
+        {
+          mt_logging::logger().log(
+              {fmt::format("XACK failed: {}", ec.message()), mt_logging::LogLevel::Info, true});
+        }
       }
       // } else {
       //   redisSubscribe.send_to_dlq_now(stream, id, fields);

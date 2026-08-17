@@ -83,7 +83,7 @@ namespace WorkQStream
     /// Deconstructor
     virtual ~Consumer();
 
-    virtual bool is_signal_stopped() { return (m_signal_status.load()); };
+    virtual bool is_signal_stopped() { return (m_signal_status.load() == true); };
     bool is_redis_connected() { return (m_is_connected.load()); };
     void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
@@ -96,6 +96,14 @@ namespace WorkQStream
     void join();
 
   private:
+    void setup_signals(const boost::asio::any_io_executor &ex);
+    void setup_connections(const boost::asio::any_io_executor &ex);
+    std::shared_ptr<redis::connection> make_connection(
+        const boost::asio::any_io_executor &ex,
+        bool use_ssl);
+    asio::awaitable<void> handle_reconnect();
+    asio::awaitable<void> run_recovery_mode();
+    asio::awaitable<void> run_normal_mode();
     asio::awaitable<void> ensure_group_exists();
     asio::awaitable<void> receiver();
     asio::awaitable<void> co_main();

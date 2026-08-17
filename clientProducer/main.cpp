@@ -113,7 +113,7 @@ int main(int argc, char **argv)
       else
       {
         doWork("liveposts_post_Create", {{"postid", "c1234"}, {"postname", "category"}});
-        doWork("liveposts_post_Create");
+        doWork("liveposts_moderate_Job");
       }
     }
   }
