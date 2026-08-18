@@ -70,6 +70,8 @@ namespace WorkQStream
     std::thread m_receiver_thread;
     std::atomic<bool> m_signal_status;
     std::atomic<bool> m_is_connected;
+    std::atomic<bool> m_connected;
+    std::atomic<bool> m_connecting;
     std::atomic<sig_atomic_t> m_cstoken_message_count;
     std::atomic<sig_atomic_t> m_reconnect_count;
     std::string m_worker_id;
@@ -84,7 +86,7 @@ namespace WorkQStream
     virtual ~Consumer();
 
     virtual bool is_signal_stopped() { return m_signal_status.load(); };
-    bool is_redis_connected() { return (m_is_connected.load()); };
+    //bool is_redis_connected() { return (m_is_connected.load()); };
     void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
     void xpending_oldest_now(std::string stream, std::string group,
