@@ -75,7 +75,7 @@ namespace WorkQStream
     {
       mt_logging::logger().log(
           {fmt::format("Consumer::load certiciates {}", e.what()),
-           mt_logging::LogLevel::Error,
+           mt_logging::LogLevel::Info,
            true});
     }
   }
@@ -352,7 +352,7 @@ namespace WorkQStream
         {
           mt_logging::logger().log(
               {fmt::format("[m_conn_read async_run] ended: {}", ec.message()),
-               mt_logging::LogLevel::Error,
+               mt_logging::LogLevel::Debug,
                true});
           m_connected.store(false);
         });
@@ -370,7 +370,7 @@ namespace WorkQStream
         {
           mt_logging::logger().log(
               {fmt::format("[m_conn_write async_run] ended: {}", ec.message()),
-               mt_logging::LogLevel::Error,
+               mt_logging::LogLevel::Debug,
                true});
           m_connected.store(false);
         });
@@ -455,7 +455,7 @@ namespace WorkQStream
       // Optional: log everything
       mt_logging::logger().log(
           {fmt::format("{} [Redis log] {}", m_connected.load(), msg),
-           mt_logging::LogLevel::Info,
+           mt_logging::LogLevel::Debug,
            true});
     };
 
@@ -528,7 +528,7 @@ namespace WorkQStream
       {
         mt_logging::logger().log(
             {fmt::format("Redis consume error: {}", e.what()),
-             mt_logging::LogLevel::Error,
+             mt_logging::LogLevel::Debug,
              true});
 
         // Mark connection down
@@ -592,7 +592,7 @@ namespace WorkQStream
     catch (const std::exception &e)
     {
       mt_logging::logger().log(
-          {fmt::format("co_main fatal error: {}", e.what()),
+          {fmt::format("co_main error: {}", e.what()),
            mt_logging::LogLevel::Error,
            true});
       // m_signal_status.store(true);
