@@ -40,30 +40,10 @@ namespace redis = boost::redis;
 namespace WorkQStream
 {
 
-  class Awakener
-  {
-
-  public:
-    // The base class will print the messages.
-    virtual void broadcast_single(
-        std::string stream_name,
-        std::string message_id,
-        std::unordered_map<std::string, std::string> fields);
-
-    virtual void on_subscribe() {
-      //  do nothing in base class
-    };
-
-    virtual void stop() {
-      //  do nothing in base class
-    };
-  };
-
-  class Consumer
+  class Recovery
   {
     asio::io_context m_ioc;
     boost::asio::signal_set m_signals;
-    Awakener &m_awakener;
     std::shared_ptr<redis::connection> m_conn_read;
     std::shared_ptr<redis::connection> m_conn_write;
     asio::strand<asio::io_context::executor_type> m_write_strand;
@@ -80,10 +60,10 @@ namespace WorkQStream
 
   public:
     /// Constructor
-    Consumer(const std::string &workerId, Awakener &awakener);
+    Recovery(const std::string &workerId);
 
     /// Deconstructor
-    virtual ~Consumer();
+    virtual ~Recovery();
 
     virtual bool is_signal_stopped() { return m_signal_status.load(); };
     // bool is_redis_connected() { return (m_is_connected.load()); };
@@ -116,6 +96,11 @@ namespace WorkQStream
                                           std::function<void(std::string)> callback);
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
                                       const std::unordered_map<std::string, std::string> &fields);
+
+    void push_dlq_xadd(redis::request &req,
+                       const std::string &stream,
+                       std::string_view id,
+                       const std::unordered_map<std::string, std::string> &fields);
 
     // Timed routines co spawn in co_main
     asio::awaitable<void> recover_pending_with_conn(

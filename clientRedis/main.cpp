@@ -1,6 +1,7 @@
 ﻿#include <csignal>
 #include <cstdlib> // For std::getenv
 #include "../workqstream/consume/Consumer.h"
+#include "../workqstream/recovery/Recovery.h"
 #include "AwakenerWaitable.h"
 #include <mutex>
 #include <condition_variable>
@@ -23,6 +24,7 @@ int main(int argc, char **argv)
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
   const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
   const char *WORKER_GROUP = std::getenv("WORKER_GROUP");
+  const char *WORKER_RECOVER_PENDING = std::getenv("WORKER_RECOVER_PENDING");
 
   if (!(redis_host && redis_port && redis_password))
   {
@@ -44,69 +46,92 @@ int main(int argc, char **argv)
   bool m_worker_shall_stop{false};
   try
   {
-    AwakenerWaitable awakener;
-    WorkQStream::Consumer redisSubscribe(argv[1], awakener);
 
-    while (!m_worker_shall_stop)
+    if (std::string(WORKER_RECOVER_PENDING) == "on")
     {
-      WorkItem work = awakener.wait_broadcast();
+      // Recovery worker on workq stream - in groupconfig env var
+      WorkQStream::Recovery redisRecovery(argv[1]);
 
-      if (redisSubscribe.is_signal_stopped())
+      while (!m_worker_shall_stop)
       {
-        m_worker_shall_stop = true;
-        mt_logging::logger().log(
-            {"Signal to Stopped",
-             mt_logging::LogLevel::Info,
-             true});
-        continue;
-      }
-
-      // Now you actually have the data:
-      const std::string &stream = work.stream;
-      const std::string &id = work.id;
-      const auto &fields = work.fields;
-      mt_logging::logger().log(
-          {fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
-           mt_logging::LogLevel::Info,
-           true});
-      bool ok = false; // process_job(stream, fields);
-
-      while (true)
-      {
-        std::promise<std::string> p;
-        auto f = p.get_future();
-
-        redisSubscribe.xpending_oldest_now(stream, std::string(WORKER_GROUP),
-                                           [&](std::string oldest)
-                                           { p.set_value(oldest); });
-
-        std::string oldest = f.get();
-
-        if (oldest == id)
-          break; // I am next in order
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-      }
-
-      // if (ok)
-      // {
-      if (stream == "liveposts_post_Create")
-      {
-        auto fut = redisSubscribe.xack_wait_now(stream, id);
-
-        // release lock ONLY after XACK is confirmed
-        auto ec = fut.get();
-
-        if (ec)
+        if (redisRecovery.is_signal_stopped())
         {
+          m_worker_shall_stop = true;
           mt_logging::logger().log(
-              {fmt::format("XACK failed: {}", ec.message()), mt_logging::LogLevel::Info, true});
+              {"Recovery Signal to Stopped",
+               mt_logging::LogLevel::Info,
+               true});
+          continue;
         }
       }
-      // } else {
-      //   redisSubscribe.send_to_dlq_now(stream, id, fields);
-      // }
     }
+    else
+    {
+      // Normal consumer of workqstreams
+      AwakenerWaitable awakener;
+      WorkQStream::Consumer redisConsumer(argv[1], awakener);
+
+      while (!m_worker_shall_stop)
+      {
+        WorkItem work = awakener.wait_broadcast();
+
+        if (redisConsumer.is_signal_stopped())
+        {
+          m_worker_shall_stop = true;
+          mt_logging::logger().log(
+              {"Consumer Signal to Stopped",
+               mt_logging::LogLevel::Info,
+               true});
+          continue;
+        }
+
+        // Now you actually have the data:
+        const std::string &stream = work.stream;
+        const std::string &id = work.id;
+        const auto &fields = work.fields;
+        mt_logging::logger().log(
+            {fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
+             mt_logging::LogLevel::Info,
+             true});
+        bool ok = false; // process_job(stream, fields);
+
+        while (true)
+        {
+          std::promise<std::string> p;
+          auto f = p.get_future();
+
+          redisConsumer.xpending_oldest_now(stream, std::string(WORKER_GROUP),
+                                             [&](std::string oldest)
+                                             { p.set_value(oldest); });
+
+          std::string oldest = f.get();
+
+          if (oldest == id)
+            break; // I am next in order
+
+          std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        // if (ok)
+        // {
+        if (stream == "liveposts_post_Create")
+        {
+          auto fut = redisConsumer.xack_wait_now(stream, id);
+
+          // release lock ONLY after XACK is confirmed
+          auto ec = fut.get();
+
+          if (ec)
+          {
+            mt_logging::logger().log(
+                {fmt::format("XACK failed: {}", ec.message()), mt_logging::LogLevel::Info, true});
+          }
+        }
+        // } else {
+        //   redisSubscribe.send_to_dlq_now(stream, id, fields);
+        // }
+      }
+    } // else of WORKER_RECOVER_PENDING==on
   }
   catch (const std::exception &e)
   {

@@ -25,4 +25,6 @@ namespace WorkQStream
   std::vector<DispatchView> parse_dispatch_view(const redis::generic_response &resp);
   std::vector<PendingEntry> parse_xpending(const redis::generic_response &resp);
 
+  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item);
+
 }

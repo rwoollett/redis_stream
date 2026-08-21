@@ -53,7 +53,7 @@ namespace WorkQStream
     {
 
       // DEBUG
-      //trace_parse(resp, index, n);
+      // trace_parse(resp, index, n);
       // STREAM NAME
       if (n.depth == 1 &&
           n.data_type == boost::redis::resp3::type::blob_string)
@@ -157,4 +157,14 @@ namespace WorkQStream
 
     return out;
   }
+
+  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
+  {
+    std::unordered_map<std::string, std::string> field_map;
+    field_map.reserve(item.fields.size());
+    for (auto &[k, v] : item.fields)
+      field_map.emplace(std::string(k), std::string(v));
+    return field_map;
+  }
+
 }

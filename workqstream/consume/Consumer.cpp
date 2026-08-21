@@ -12,13 +12,11 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/lexical_cast.hpp>
-#include "ParseRedisResp.h"
 
 namespace WorkQStream
 {
 
   static const char *WORKER_GROUP = std::getenv("WORKER_GROUP");
-  static const char *WORKER_RECOVER_PENDING = std::getenv("WORKER_RECOVER_PENDING");
   static const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
@@ -43,42 +41,33 @@ namespace WorkQStream
          true});
   }
 
-  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
-  {
-    std::unordered_map<std::string, std::string> field_map;
-    field_map.reserve(item.fields.size());
-    for (auto &[k, v] : item.fields)
-      field_map.emplace(std::string(k), std::string(v));
-    return field_map;
-  }
-
-  auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
-  {
-    return true;
-  }
-  // Helper to load a file into an SSL context
-  void load_certificates(asio::ssl::context &ctx,
-                         const std::string &ca_file,
-                         const std::string &cert_file,
-                         const std::string &key_file)
-  {
-    try
-    {
-      // Load trusted CA
-      ctx.load_verify_file(ca_file);
-      // Load client certificate
-      ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
-      // Load private key
-      ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-    }
-    catch (const std::exception &e)
-    {
-      mt_logging::logger().log(
-          {fmt::format("Consumer::load certiciates {}", e.what()),
-           mt_logging::LogLevel::Info,
-           true});
-    }
-  }
+  // auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
+  // {
+  //   return true;
+  // }
+  // // Helper to load a file into an SSL context
+  // void load_certificates(asio::ssl::context &ctx,
+  //                        const std::string &ca_file,
+  //                        const std::string &cert_file,
+  //                        const std::string &key_file)
+  // {
+  //   try
+  //   {
+  //     // Load trusted CA
+  //     ctx.load_verify_file(ca_file);
+  //     // Load client certificate
+  //     ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
+  //     // Load private key
+  //     ctx.use_private_key_file(key_file, asio::ssl::context::pem);
+  //   }
+  //   catch (const std::exception &e)
+  //   {
+  //     mt_logging::logger().log(
+  //         {fmt::format("Consumer::load certiciates {}", e.what()),
+  //          mt_logging::LogLevel::Info,
+  //          true});
+  //   }
+  // }
 
   Consumer::Consumer(
       const std::string &workerId,
@@ -94,10 +83,9 @@ namespace WorkQStream
   {
     if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
-        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
-        WORKER_RECOVER_PENDING == nullptr)
+        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, WORKER_RECOVER_PENDING and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
 
     m_is_connected.store(false);
@@ -353,17 +341,8 @@ namespace WorkQStream
     cfg_write.password = REDIS_PASSWORD;
     cfg_write.use_ssl = use_ssl;
     // minute health check:
-
-    if (std::string(WORKER_RECOVER_PENDING) == "on")
-    {
-      cfg_read.health_check_interval = std::chrono::seconds(0);  // set 0 for tls friendly
-      cfg_write.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
-    }
-    else
-    {
-      cfg_read.health_check_interval = std::chrono::minutes(1);  // set 0 for tls friendly
-      cfg_write.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
-    }
+    cfg_read.health_check_interval = std::chrono::minutes(1);  // set 0 for tls friendly
+    cfg_write.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
 
     m_conn_read->async_run(
         cfg_read,
@@ -568,7 +547,6 @@ namespace WorkQStream
       setup_signals();
       setup_connections(ex);
       co_await run_consumer();
-
     }
     catch (const std::exception &e)
     {
@@ -670,10 +648,10 @@ namespace WorkQStream
         });
   }
 
-  void push_dlq_xadd(redis::request &req,
-                     const std::string &stream,
-                     std::string_view id,
-                     const std::unordered_map<std::string, std::string> &fields)
+  void Consumer::push_dlq_xadd(redis::request &req,
+                               const std::string &stream,
+                               std::string_view id,
+                               const std::unordered_map<std::string, std::string> &fields)
   {
     std::vector<std::string> args;
     args.reserve(4 + fields.size() * 2);
@@ -795,7 +773,6 @@ namespace WorkQStream
     // Remove from PEL
     co_await xack(stream, id);
   }
-
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
 

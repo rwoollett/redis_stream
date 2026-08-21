@@ -115,6 +115,10 @@ namespace WorkQStream
                                           std::function<void(std::string)> callback);
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
                                       const std::unordered_map<std::string, std::string> &fields);
+    void push_dlq_xadd(redis::request &req,
+                       const std::string &stream,
+                       std::string_view id,
+                       const std::unordered_map<std::string, std::string> &fields);
 
     void read_stream(const redis::generic_response &resp);
   };

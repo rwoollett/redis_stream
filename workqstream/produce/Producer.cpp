@@ -37,31 +37,6 @@ namespace WorkQStream
   std::atomic<sig_atomic_t> Producer::MESSAGE_COUNT{0};
   std::atomic<sig_atomic_t> Producer::MESSAGE_SUCCESS_COUNT{0};
 
-  auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
-  {
-    return true;
-  }
-
-  void load_certificates(asio::ssl::context &ctx,
-                         const std::string &ca_file,
-                         const std::string &cert_file,
-                         const std::string &key_file)
-  {
-    try
-    {
-      ctx.load_verify_file(ca_file);
-      ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
-      ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-    }
-    catch (const std::exception &e)
-    {
-      mt_logging::logger().log(
-          {fmt::format("Producer::load_certificates {}", e.what()),
-           mt_logging::LogLevel::Error,
-           true});
-    }
-  }
-
   Producer::Producer()
       : m_ioc{2},
         m_strand(asio::make_strand(m_ioc)),

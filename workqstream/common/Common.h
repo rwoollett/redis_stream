@@ -1,7 +1,13 @@
 #pragma once
 
 #include "Groups.h"
+#include "ParseRedisResp.h"
 #include "json.h"
+#include <boost/asio/connect.hpp>
+#include <mtlog/mt_log.hpp>
+
+namespace asio = boost::asio;
+
 
 namespace WorkQStream
 {
@@ -55,7 +61,7 @@ namespace WorkQStream
         << "Action:    " << remediation << "\n";
     return oss.str();
   }
-  
+
   inline void validate_stream_or_throw(
       const std::string &stream,
       const std::unordered_set<std::string> &validStreams,
@@ -73,4 +79,33 @@ namespace WorkQStream
               "Ensure the stream is defined in REDIS_GROUP_CONFIG"));
     }
   }
+
+  inline bool verify_certificate(bool, asio::ssl::verify_context &)
+  {
+    return true;
+  }
+  // Helper to load a file into an SSL context
+  inline void load_certificates(asio::ssl::context &ctx,
+                                const std::string &ca_file,
+                                const std::string &cert_file,
+                                const std::string &key_file)
+  {
+    try
+    {
+      // Load trusted CA
+      ctx.load_verify_file(ca_file);
+      // Load client certificate
+      ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
+      // Load private key
+      ctx.use_private_key_file(key_file, asio::ssl::context::pem);
+    }
+    catch (const std::exception &e)
+    {
+      mt_logging::logger().log(
+          {fmt::format("Consumer::load certiciates {}", e.what()),
+           mt_logging::LogLevel::Info,
+           true});
+    }
+  }
+
 }

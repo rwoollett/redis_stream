@@ -19,6 +19,7 @@ target_link_libraries(ClientRedis PRIVATE
   OpenSSL::SSL 
   OpenSSL::Crypto 
   WorkQConsume
+  WorkQRecovery
   fmt::fmt
 )
 

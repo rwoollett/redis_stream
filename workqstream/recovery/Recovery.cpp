@@ -1,5 +1,5 @@
 
-#include "Consumer.h"
+#include "Recovery.h"
 #include <memory>
 #include <fstream>
 #include <sstream>
@@ -12,7 +12,6 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/lexical_cast.hpp>
-#include "ParseRedisResp.h"
 
 namespace WorkQStream
 {
@@ -32,72 +31,21 @@ namespace WorkQStream
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-  void Awakener::broadcast_single(
-      std::string stream_name,
-      std::string message_id,
-      std::unordered_map<std::string, std::string> fields)
-  {
-    mt_logging::logger().log(
-        {fmt::format("Broadcast work item message \n STREAM: {}\n    ID: {}\n", stream_name, message_id, fmt::join(fields, ", ")),
-         mt_logging::LogLevel::Info,
-         true});
-  }
-
-  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
-  {
-    std::unordered_map<std::string, std::string> field_map;
-    field_map.reserve(item.fields.size());
-    for (auto &[k, v] : item.fields)
-      field_map.emplace(std::string(k), std::string(v));
-    return field_map;
-  }
-
-  auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
-  {
-    return true;
-  }
-  // Helper to load a file into an SSL context
-  void load_certificates(asio::ssl::context &ctx,
-                         const std::string &ca_file,
-                         const std::string &cert_file,
-                         const std::string &key_file)
-  {
-    try
-    {
-      // Load trusted CA
-      ctx.load_verify_file(ca_file);
-      // Load client certificate
-      ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
-      // Load private key
-      ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-    }
-    catch (const std::exception &e)
-    {
-      mt_logging::logger().log(
-          {fmt::format("Consumer::load certiciates {}", e.what()),
-           mt_logging::LogLevel::Info,
-           true});
-    }
-  }
-
-  Consumer::Consumer(
-      const std::string &workerId,
-      Awakener &awakener) : m_ioc{3},
-                            m_signals(m_ioc.get_executor()),
-                            m_awakener(awakener),
-                            m_conn_read{},
-                            m_conn_write{},
-                            m_write_strand(asio::make_strand(m_ioc)),
-                            m_worker_id(workerId),
-                            m_group_config(load_group_config()),
-                            m_valid_streams{}
+  Recovery::Recovery(
+      const std::string &workerId) : m_ioc{3},
+                                     m_signals(m_ioc.get_executor()),
+                                     m_conn_read{},
+                                     m_conn_write{},
+                                     m_write_strand(asio::make_strand(m_ioc)),
+                                     m_worker_id(workerId),
+                                     m_group_config(load_group_config()),
+                                     m_valid_streams{}
   {
     if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
-        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
-        WORKER_RECOVER_PENDING == nullptr)
+        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, WORKER_RECOVER_PENDING and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
 
     m_is_connected.store(false);
@@ -122,12 +70,12 @@ namespace WorkQStream
       m_valid_streams.insert(s);
     }
 
-    asio::co_spawn(m_ioc.get_executor(), Consumer::co_main(), asio::detached);
+    asio::co_spawn(m_ioc.get_executor(), Recovery::co_main(), asio::detached);
     m_receiver_thread = std::thread([this]()
                                     { m_ioc.run(); });
   }
 
-  Consumer::~Consumer()
+  Recovery::~Recovery()
   {
     mt_logging::logger().log(
         {"Redis Consumer destroying",
@@ -139,7 +87,7 @@ namespace WorkQStream
          mt_logging::LogLevel::Debug, true});
   }
 
-  void Consumer::request_stop()
+  void Recovery::request_stop()
   {
     m_signal_status.store(true);
 
@@ -155,21 +103,18 @@ namespace WorkQStream
                         { conn->cancel(); });
     }
 
-    // Wake the awakener
-    m_awakener.stop();
-
     // Stop the io_context on its own thread
     boost::asio::post(m_ioc, [this]
                       { m_ioc.stop(); });
   }
 
-  void Consumer::join()
+  void Recovery::join()
   {
     if (m_receiver_thread.joinable())
       m_receiver_thread.join();
   }
 
-  asio::awaitable<void> Consumer::ensure_group_exists()
+  asio::awaitable<void> Recovery::ensure_group_exists()
   {
     for (const auto &stream : m_valid_streams)
     {
@@ -214,22 +159,22 @@ namespace WorkQStream
     }
   }
 
-  void Consumer::read_stream(const redis::generic_response &resp)
+  void Recovery::read_stream(const redis::generic_response &resp)
   {
     auto dispatch_items = parse_dispatch_view(resp);
 
     for (auto &item : dispatch_items)
     {
       m_cstoken_message_count.fetch_add(1, std::memory_order_relaxed);
-      m_awakener.broadcast_single(
-          std::string(item.stream),       // service name
-          std::string(item.id),           // message ID
-          std::move(convert_fields(item)) // all fields
-      );
+      // m_awakener.broadcast_single(
+      //     std::string(item.stream),       // service name
+      //     std::string(item.id),           // message ID
+      //     std::move(convert_fields(item)) // all fields
+      // );
     }
   }
 
-  auto Consumer::receiver() -> asio::awaitable<void>
+  auto Recovery::receiver() -> asio::awaitable<void>
   {
     redis::request req;
     std::vector<std::string> args;
@@ -272,7 +217,7 @@ namespace WorkQStream
         {
           mt_logging::logger().log(
               {fmt::format(
-                   "- Consumer::receiver operation_aborted → marking disconnected {} {}", ec.message(), ec.value()),
+                   "- Recovery::receiver operation_aborted → marking disconnected {} {}", ec.message(), ec.value()),
                mt_logging::LogLevel::Error,
                true});
 
@@ -308,7 +253,7 @@ namespace WorkQStream
     }
   }
 
-  void Consumer::setup_signals()
+  void Recovery::setup_signals()
   {
     m_signals.add(SIGINT);
     m_signals.add(SIGTERM);
@@ -319,7 +264,6 @@ namespace WorkQStream
         [&](const boost::system::error_code &, int)
         {
           m_signal_status.store(true);
-          m_awakener.stop();
           if (m_conn_read)
           {
             m_conn_read->cancel();
@@ -331,7 +275,7 @@ namespace WorkQStream
         });
   }
 
-  void Consumer::setup_connections(const boost::asio::any_io_executor &ex)
+  void Recovery::setup_connections(const boost::asio::any_io_executor &ex)
   {
 
     m_connected.store(false); // start pessimistic
@@ -388,7 +332,7 @@ namespace WorkQStream
     m_connecting.store(true);
   }
 
-  auto Consumer::handle_reconnect() -> asio::awaitable<void>
+  auto Recovery::handle_reconnect() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
 
@@ -432,7 +376,7 @@ namespace WorkQStream
     //    co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
   }
 
-  std::shared_ptr<redis::connection> Consumer::make_connection(
+  std::shared_ptr<redis::connection> Recovery::make_connection(
       const boost::asio::any_io_executor &ex,
       bool use_ssl)
   {
@@ -491,7 +435,7 @@ namespace WorkQStream
     }
   }
 
-  auto Consumer::run_recovery_mode() -> asio::awaitable<void>
+  auto Recovery::run_recovery_mode() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
 
@@ -538,7 +482,7 @@ namespace WorkQStream
     co_return;
   }
 
-  auto Consumer::run_normal_mode() -> asio::awaitable<void>
+  auto Recovery::run_normal_mode() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
 
@@ -600,7 +544,7 @@ namespace WorkQStream
     co_return;
   }
 
-  auto Consumer::co_main() -> asio::awaitable<void>
+  auto Recovery::co_main() -> asio::awaitable<void>
   {
     try
     {
@@ -616,32 +560,16 @@ namespace WorkQStream
       setup_connections(ex);
       co_await ensure_group_exists();
 
-      if (std::string(WORKER_RECOVER_PENDING) == "on")
+      for (;;)
       {
-        if (m_conn_read)
-          m_conn_read->cancel();
-        if (m_conn_write)
-          m_conn_write->cancel();
-        for (;;)
-        {
-          if (m_signal_status.load())
-            co_return;
+        if (m_signal_status.load())
+          co_return;
 
-          co_await run_recovery_mode();
-          std::cerr << "recover.";
-          co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY))
-              .async_wait(asio::use_awaitable);
-        }
+        co_await run_recovery_mode();
+        std::cerr << "recover.";
+        co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY))
+            .async_wait(asio::use_awaitable);
       }
-
-      mt_logging::logger().log(
-          {fmt::format("running normal mode id:  {}", m_worker_id),
-           mt_logging::LogLevel::Info,
-           true});
-      co_await run_normal_mode();
-
-      // m_signal_status.store(true);
-      // m_awakener.stop();
     }
     catch (const std::exception &e)
     {
@@ -650,11 +578,10 @@ namespace WorkQStream
            mt_logging::LogLevel::Error,
            true});
       m_signal_status.store(true);
-      m_awakener.stop();
     }
   }
 
-  void Consumer::xack_now(std::string stream, std::string id)
+  void Recovery::xack_now(std::string stream, std::string id)
   {
     if (m_signal_status.load())
       return;
@@ -674,7 +601,7 @@ namespace WorkQStream
   }
 
   std::future<boost::system::error_code>
-  Consumer::xack_wait_now(std::string stream, std::string id)
+  Recovery::xack_wait_now(std::string stream, std::string id)
   {
     auto p = std::make_shared<std::promise<boost::system::error_code>>();
 
@@ -695,7 +622,7 @@ namespace WorkQStream
     return p->get_future();
   }
 
-  void Consumer::xpending_oldest_now(std::string stream,
+  void Recovery::xpending_oldest_now(std::string stream,
                                      std::string group,
                                      std::function<void(std::string)> callback)
   {
@@ -722,7 +649,7 @@ namespace WorkQStream
         });
   }
 
-  void Consumer::send_to_dlq_now(std::string stream,
+  void Recovery::send_to_dlq_now(std::string stream,
                                  std::string id,
                                  std::unordered_map<std::string, std::string> fields)
   {
@@ -743,10 +670,10 @@ namespace WorkQStream
         });
   }
 
-  void push_dlq_xadd(redis::request &req,
-                     const std::string &stream,
-                     std::string_view id,
-                     const std::unordered_map<std::string, std::string> &fields)
+  void Recovery::push_dlq_xadd(redis::request &req,
+                               const std::string &stream,
+                               std::string_view id,
+                               const std::unordered_map<std::string, std::string> &fields)
   {
     std::vector<std::string> args;
     args.reserve(4 + fields.size() * 2);
@@ -766,7 +693,7 @@ namespace WorkQStream
     req.push_range("XADD", args);
   }
 
-  asio::awaitable<void> Consumer::xack(std::string_view stream, std::string_view id)
+  asio::awaitable<void> Recovery::xack(std::string_view stream, std::string_view id)
   {
     redis::request req;
     req.push("XACK", stream, WORKER_GROUP, id);
@@ -787,7 +714,7 @@ namespace WorkQStream
     }
   }
 
-  asio::awaitable<boost::system::error_code> Consumer::xack_wait(std::string_view stream, std::string_view id)
+  asio::awaitable<boost::system::error_code> Recovery::xack_wait(std::string_view stream, std::string_view id)
   {
     redis::request req;
     req.push("XACK", stream, WORKER_GROUP, id);
@@ -807,7 +734,7 @@ namespace WorkQStream
     co_return ec;
   }
 
-  asio::awaitable<void> Consumer::xpending_oldest(std::string_view stream,
+  asio::awaitable<void> Recovery::xpending_oldest(std::string_view stream,
                                                   std::string_view group,
                                                   std::function<void(std::string)> callback)
   {
@@ -846,7 +773,7 @@ namespace WorkQStream
     callback(oldest_xid);
   }
 
-  asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,
+  asio::awaitable<void> Recovery::send_to_dlq(std::string_view stream, std::string_view id,
                                               const std::unordered_map<std::string, std::string> &fields)
   {
     redis::request req;
@@ -869,7 +796,7 @@ namespace WorkQStream
     co_await xack(stream, id);
   }
 
-  asio::awaitable<void> Consumer::recover_pending_with_conn(
+  asio::awaitable<void> Recovery::recover_pending_with_conn(
       std::string stream,
       std::shared_ptr<redis::connection> conn)
   {
@@ -952,7 +879,7 @@ namespace WorkQStream
     co_return;
   }
 
-  asio::awaitable<void> Consumer::trim_stream_with_conn(
+  asio::awaitable<void> Recovery::trim_stream_with_conn(
       std::string stream,
       std::shared_ptr<redis::connection> conn)
   {
