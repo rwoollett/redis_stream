@@ -86,7 +86,7 @@ namespace WorkQStream
     virtual ~Consumer();
 
     virtual bool is_signal_stopped() { return m_signal_status.load(); };
-    //bool is_redis_connected() { return (m_is_connected.load()); };
+    // bool is_redis_connected() { return (m_is_connected.load()); };
     void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
     void xpending_oldest_now(std::string stream, std::string group,
@@ -118,11 +118,14 @@ namespace WorkQStream
                                       const std::unordered_map<std::string, std::string> &fields);
 
     // Timed routines co spawn in co_main
-    asio::awaitable<void> recover_pending(std::string stream);
-    asio::awaitable<void> trim_stream(std::string stream);
+    asio::awaitable<void> recover_pending_with_conn(
+        std::string stream,
+        std::shared_ptr<redis::connection> conn);
+    asio::awaitable<void> trim_stream_with_conn(
+        std::string stream,
+        std::shared_ptr<redis::connection> conn);
 
     void read_stream(const redis::generic_response &resp);
-    
   };
 
 } /* namespace WorkQStream */

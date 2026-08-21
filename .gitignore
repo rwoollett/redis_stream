@@ -14,6 +14,8 @@ build.log
 set_env.sh
 output_publ*
 output_scrb*
+output_consumer*
+output_producer*
 output_rs*
 tls
 # --- Build directories (CMake presets) ---

@@ -40,13 +40,13 @@ fi
 export MTLOG_LEVEL=debug
 export WORKER_RECOVER_PENDING=on
 export MTLOG_LOGFILE=output_rs_consumer_recovery.log
-(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_scrb_recovery.log 2>&1 &)
+(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
 count=1
 while [ $count -le 3 ]; do
   sleep .4
   export WORKER_RECOVER_PENDING=off
   export MTLOG_LOGFILE=output_rs_consumer_$count.log
-  (./$cmakedir/clientRedis/ClientRedis worker_$count > output_scrb_$count.log 2>&1 &)
+  (./$cmakedir/clientRedis/ClientRedis worker_$count > output_consumer_$count.log 2>&1 &)
   ((count++))
 done
 

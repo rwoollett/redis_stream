@@ -53,7 +53,7 @@ namespace WorkQStream
     {
 
       // DEBUG
-      trace_parse(resp, index, n);
+      //trace_parse(resp, index, n);
       // STREAM NAME
       if (n.depth == 1 &&
           n.data_type == boost::redis::resp3::type::blob_string)
