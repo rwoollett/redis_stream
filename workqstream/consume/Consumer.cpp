@@ -491,54 +491,7 @@ namespace WorkQStream
     }
   }
 
-  auto Consumer::run_recovery_mode() -> asio::awaitable<void>
-  {
-    auto ex = co_await asio::this_coro::executor;
-
-    std::vector<asio::awaitable<void>> joiners;
-    joiners.reserve(m_valid_streams.size());
-    // joiners.reserve(m_valid_streams.size() * 2);
-    auto use_ssl = std::string(REDIS_USE_SSL) == "on";
-
-    for (const auto &stream : m_valid_streams)
-    {
-      // Each recovery task gets its own connection
-      auto conn1 = make_connection(ex, use_ssl);
-      auto conn2 = make_connection(ex, use_ssl);
-
-      redis::config cfg_write;
-      cfg_write.addr.host = REDIS_HOST;
-      cfg_write.addr.port = REDIS_PORT;
-      cfg_write.password = REDIS_PASSWORD;
-      cfg_write.use_ssl = use_ssl;
-      cfg_write.health_check_interval = std::chrono::seconds(0); // set 0 for tls friendly
-      conn1->async_run(cfg_write, [](auto) {});
-      // conn2->async_run(cfg_write, [](auto) {});
-
-      joiners.push_back(
-          asio::co_spawn(
-              ex,
-              recover_pending_with_conn(stream, conn1),
-              asio::use_awaitable));
-
-      // joiners.push_back(
-      //     asio::co_spawn(
-      //         ex,
-      //         trim_stream_with_conn(stream, conn2),
-      //         asio::use_awaitable));
-    }
-
-    for (auto &j : joiners)
-      co_await std::move(j);
-
-    // co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY)).async_wait(asio::use_awaitable);
-    //  co_await asio::steady_timer(ex, std::chrono::seconds(TRIM_STREAM_DELAY))
-    //      .async_wait(asio::redirect_error(asio::use_awaitable, ec));
-
-    co_return;
-  }
-
-  auto Consumer::run_normal_mode() -> asio::awaitable<void>
+  auto Consumer::run_consumer() -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
 
@@ -614,34 +567,8 @@ namespace WorkQStream
 
       setup_signals();
       setup_connections(ex);
-      co_await ensure_group_exists();
+      co_await run_consumer();
 
-      if (std::string(WORKER_RECOVER_PENDING) == "on")
-      {
-        if (m_conn_read)
-          m_conn_read->cancel();
-        if (m_conn_write)
-          m_conn_write->cancel();
-        for (;;)
-        {
-          if (m_signal_status.load())
-            co_return;
-
-          co_await run_recovery_mode();
-          std::cerr << "recover.";
-          co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY))
-              .async_wait(asio::use_awaitable);
-        }
-      }
-
-      mt_logging::logger().log(
-          {fmt::format("running normal mode id:  {}", m_worker_id),
-           mt_logging::LogLevel::Info,
-           true});
-      co_await run_normal_mode();
-
-      // m_signal_status.store(true);
-      // m_awakener.stop();
     }
     catch (const std::exception &e)
     {
@@ -649,8 +576,8 @@ namespace WorkQStream
           {fmt::format("co_main error: {}", e.what()),
            mt_logging::LogLevel::Error,
            true});
-      m_signal_status.store(true);
-      m_awakener.stop();
+      // m_signal_status.store(true);
+      // m_awakener.stop();
     }
   }
 
@@ -869,121 +796,6 @@ namespace WorkQStream
     co_await xack(stream, id);
   }
 
-  asio::awaitable<void> Consumer::recover_pending_with_conn(
-      std::string stream,
-      std::shared_ptr<redis::connection> conn)
-  {
-    auto ex = co_await asio::this_coro::executor;
-
-    if (m_signal_status.load())
-      co_return;
-
-    // 1. Get up to 10 pending messages
-    mt_logging::logger().log(
-        {fmt::format("XPENDING data            [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
-         mt_logging::LogLevel::Info,
-         true});
-
-    redis::request req;
-    req.push("XPENDING", stream, std::string(WORKER_GROUP), "-", "+", "10");
-
-    redis::generic_response resp;
-    boost::system::error_code ec;
-    co_await asio::steady_timer(ex, std::chrono::milliseconds(50)).async_wait(asio::use_awaitable);
-
-    co_await conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-
-    if (ec)
-    {
-      mt_logging::logger().log(
-          {fmt::format("XPENDING fail         [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
-           mt_logging::LogLevel::Error,
-           true});
-      co_return;
-    }
-
-    auto pendings = parse_xpending(resp);
-    if (pendings.empty())
-      co_return;
-
-    for (auto &p : pendings)
-    {
-      mt_logging::logger().log(
-          {fmt::format(" - Pending ID: {} consumer={} idle={} deliveries={}", p.id, p.consumer, p.idle_ms, p.delivery_count),
-           mt_logging::LogLevel::Info,
-           true});
-      // Do DLQ logic
-      if (p.delivery_count > 5)
-      {
-        send_to_dlq_now(stream, p.id, {/** field are missing can be found with XREADGROUP see later */});
-        continue;
-      }
-
-      // // 2. Claim the message
-      // redis::request claim;
-      // claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
-
-      // redis::generic_response claim_resp;
-      // co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
-
-      // // 3. Fetch the message fields
-      // redis::request read_req;
-      // read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id, "STREAMS", stream, p.id);
-
-      // redis::generic_response read_resp;
-      // co_await conn->async_exec(read_req, read_resp, asio::use_awaitable);
-
-      // auto items = parse_dispatch_view(read_resp);
-
-      // for (auto &item : items)
-      // {
-      //   mt_logging::logger().log(
-      //       {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
-      //        mt_logging::LogLevel::Info,
-      //        true});
-
-      //   // 4. Push into your Awakener queue
-      //   m_awakener.broadcast_single(
-      //       std::string(item.stream),
-      //       std::string(item.id),
-      //       std::move(convert_fields(item)));
-      // }
-    }
-    co_return;
-  }
-
-  asio::awaitable<void> Consumer::trim_stream_with_conn(
-      std::string stream,
-      std::shared_ptr<redis::connection> conn)
-  {
-
-    auto ex = co_await asio::this_coro::executor;
-
-    if (m_signal_status.load())
-      co_return;
-
-    redis::request req;
-    mt_logging::logger().log(
-        {fmt::format("XTRIM data            [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
-         mt_logging::LogLevel::Info,
-         true});
-
-    req.push("XTRIM", stream, "MAXLEN", "~", std::to_string(TRIM_STREAM_SIZE));
-
-    boost::system::error_code ec;
-    co_await asio::steady_timer(ex, std::chrono::milliseconds(50)).async_wait(asio::use_awaitable);
-    co_await conn->async_exec(req, redis::ignore, asio::redirect_error(asio::use_awaitable, ec));
-
-    if (ec)
-    {
-      mt_logging::logger().log(
-          {fmt::format("XTRIM failed          [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
-           mt_logging::LogLevel::Error,
-           true});
-    }
-
-    co_return;
-  }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
 
