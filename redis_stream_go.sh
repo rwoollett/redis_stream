@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run this (redisnet_go.sh) for sample redis pub/sub network with publisher and subscriber 
+
 if [ -z "$1" ]; then
   echo "Usage: $0 <cmake build dir>"
   exit 1
@@ -16,11 +16,11 @@ pwd
   echo "**Error**: You must have a \"$cmakedir/clientRedis\" folder with file \"ClientRedis\" built from CMakeLists"
   DIE=1
 }
-# (test -f ./$cmakedir/clientProducer/ClientProducer) || {
-#   echo
-#   echo "**Error**: You must have a \"$cmakedir/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
-#   DIE=1
-# }
+(test -f ./$cmakedir/clientProducer/ClientProducer) || {
+  echo
+  echo "**Error**: You must have a \"$cmakedir/clientProducer\" folder with file \"ClientProducer\" built from CMakeLists"
+  DIE=1
+}
 
 
 if test "$DIE" -eq 1; then
@@ -32,15 +32,12 @@ fi
 . ./set_env.sh
 
 (docker compose up -d)
-# if compgen -G "output_*" > /dev/null; then 
-#   echo "Cleared output_*" 
-#   rm output_* 
-# fi
+if compgen -G "output_*" > /dev/null; then 
+  echo "Cleared output_*" 
+  rm output_* 
+fi
 
 export MTLOG_LEVEL=debug
-export WORKER_RECOVER_PENDING=on
-export MTLOG_LOGFILE=output_rs_consumer_recovery.log
-(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
 count=1
 while [ $count -le 3 ]; do
   sleep .4
@@ -50,8 +47,13 @@ while [ $count -le 3 ]; do
   ((count++))
 done
 
-# sleep .4
-# (./$cmakedir/clientProducer/ClientProducer > output_publ_$$.log 2>&1 &)
+sleep .4
+export WORKER_RECOVER_PENDING=on
+export MTLOG_LOGFILE=output_rs_consumer_recovery.log
+(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
+
+sleep .4
+(./$cmakedir/clientProducer/ClientProducer > output_producer_$$.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

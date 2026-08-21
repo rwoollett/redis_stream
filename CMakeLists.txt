@@ -45,6 +45,7 @@ option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis
 add_subdirectory(workqstream/common)
 add_subdirectory(workqstream/consume)
 add_subdirectory(workqstream/produce)
+add_subdirectory(workqstream/recovery)
 
 if (BUILD_WORKQ_TESTS)
   find_package(nlohmann_json REQUIRED)
