@@ -42,16 +42,16 @@ export MTLOG_LEVEL=debug
 sleep .4
 export WORKER_RECOVER_PENDING=off
 export MTLOG_LOGFILE=output_rs_consumer.log
-(./$cmakedir/clientRedis/ClientRedis > output_consumer_$$.log 2>&1 &)
+(./$cmakedir/clientRedis/ClientRedis > output_consumer.log 2>&1 &)
 
-sleep .4
-export WORKER_RECOVER_PENDING=on
-export MTLOG_LOGFILE=output_rs_consumer_recovery.log
-(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
+# sleep .4
+# export WORKER_RECOVER_PENDING=on
+# export MTLOG_LOGFILE=output_rs_consumer_recovery.log
+# (./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
 
 sleep .4
 . ./set_env.sh
-(./$cmakedir/clientProducer/ClientProducer > output_producer_$$.log 2>&1 &)
+(./$cmakedir/clientProducer/ClientProducer > output_producer.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

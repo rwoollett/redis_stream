@@ -15,28 +15,25 @@
 #include <string>
 #include <stdexcept>
 
-std::mutex cs_lock; // Critical section lock (DB + XACK)
-std::atomic<bool> stop_flag{false};
-
 void worker_thread(std::string worker_id)
 {
+  std::mutex cs_lock; // Critical section lock (DB + XACK)
+
   AwakenerWaitable awakener;
   WorkQStream::Consumer redisConsumer(worker_id, awakener);
 
-  while (!stop_flag.load())
+  while (true)
   {
     // Wait for next message from Redis
     WorkItem work = awakener.wait_broadcast();
 
     if (redisConsumer.is_signal_stopped())
     {
-      stop_flag.store(true);
       mt_logging::logger().log(
-          {"Consumer Signal to Stopped",
+          {fmt::format("Consumer {} signaled to Stop {}", worker_id, 1),
            mt_logging::LogLevel::Info,
            true});
-
-      continue;
+      return;
     }
 
     const std::string &stream = work.stream;
@@ -54,21 +51,66 @@ void worker_thread(std::string worker_id)
     //
     while (true)
     {
-      std::promise<std::string> p;
-      auto f = p.get_future();
+      if (redisConsumer.is_signal_stopped())
+      {
+        mt_logging::logger().log(
+            {fmt::format("Consumer {} signaled to Stop {}", worker_id, 2),
+             mt_logging::LogLevel::Info,
+             true});
+        return;
+      }
+
+      std::atomic<bool> xp_pending_ready{false};
+      std::string oldest;
 
       redisConsumer.xpending_oldest_now(
           stream,
           std::getenv("WORKER_GROUP"),
-          [&](std::string oldest)
-          { p.set_value(oldest); });
+          [&](std::string xid)
+          {
+            oldest = xid;
+            xp_pending_ready.store(true);
+            //
+          });
 
-      std::string oldest = f.get();
+      for (int i = 0; i < 200; ++i)
+      {
+        if (redisConsumer.is_signal_stopped())
+        {
+          mt_logging::logger().log(
+              {fmt::format("Consumer {} signaled to Stop {}", worker_id, 3),
+               mt_logging::LogLevel::Info,
+               true});
+          return;
+        }
+
+        if (xp_pending_ready.load())
+          break;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      if (redisConsumer.is_signal_stopped())
+      {
+        mt_logging::logger().log(
+            {fmt::format("Consumer {} signaled to Stop {}", worker_id, 4),
+             mt_logging::LogLevel::Info,
+             true});
+        return;
+      }
 
       if (oldest == xid)
         break; // I am next in order
 
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    if (redisConsumer.is_signal_stopped())
+    {
+      mt_logging::logger().log(
+          {fmt::format("Consumer {} signaled to Stop {}", worker_id, 5),
+           mt_logging::LogLevel::Info,
+           true});
+      return;
     }
 
     //
@@ -78,17 +120,37 @@ void worker_thread(std::string worker_id)
       std::lock_guard<std::mutex> guard(cs_lock);
 
       // Simulate DB work
+      auto td = 0;
+      if (worker_id == "worker_3")
+        td = 250;
+      else if (worker_id == "worker_2")
+        td = 120 + (rand() % 200);
+      else
+        td = 50;
+
       mt_logging::logger().log(
-          {fmt::format("#&!  Process for XID:  [WORKER {}    STREAM {}      XID {}]",
-                       worker_id, stream, xid),
+          {fmt::format("#&!  {}  Process for XID:  [WORKER {}    STREAM {}      XID {}]",
+                       td, worker_id, stream, xid),
            mt_logging::LogLevel::Info,
            true});
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      std::this_thread::sleep_for(std::chrono::milliseconds(td));
+      if (redisConsumer.is_signal_stopped())
+      {
+        mt_logging::logger().log(
+            {fmt::format("Consumer {} signaled to Stop {}", worker_id, 6),
+             mt_logging::LogLevel::Info,
+             true});
+        return;
+      }
 
       // XACK MUST BE INSIDE THE LOCK
       auto fut = redisConsumer.xack_wait_now(stream, xid);
       auto ec = fut.get();
+      mt_logging::logger().log(
+          {fmt::format("Consumer {} xack wait ec {}", worker_id, ec.message()),
+           mt_logging::LogLevel::Info,
+           true});
 
       if (ec)
       {
@@ -107,6 +169,7 @@ void worker_thread(std::string worker_id)
     }
 
     // Lock released here
+    std::cerr << "running " << worker_id << "\n";
   }
 }
 
@@ -159,11 +222,11 @@ int main(int argc, char **argv)
 
       std::thread w1(worker_thread, "worker_1");
       std::thread w2(worker_thread, "worker_2");
-      std::thread w3(worker_thread, "worker_3");
+      //std::thread w3(worker_thread, "worker_3");
 
       w1.join();
       w2.join();
-      w3.join();
+      //w3.join();
 
     } // else of WORKER_RECOVER_PENDING==on
   }

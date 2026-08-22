@@ -83,7 +83,7 @@ public:
       std::unique_lock<std::mutex> cl(m_class_lock);
       shall_stop_awaken = true;
     }
-    m_cond_not_awake.notify_one();
+    m_cond_not_awake.notify_all();
   }
 };
 
