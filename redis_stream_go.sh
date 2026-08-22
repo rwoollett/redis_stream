@@ -53,6 +53,7 @@ export MTLOG_LOGFILE=output_rs_consumer_recovery.log
 (./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
 
 sleep .4
+. ./set_env.sh
 (./$cmakedir/clientProducer/ClientProducer > output_producer_$$.log 2>&1 &)
 
 cd ..

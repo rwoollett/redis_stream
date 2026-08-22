@@ -41,34 +41,6 @@ namespace WorkQStream
          true});
   }
 
-  // auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
-  // {
-  //   return true;
-  // }
-  // // Helper to load a file into an SSL context
-  // void load_certificates(asio::ssl::context &ctx,
-  //                        const std::string &ca_file,
-  //                        const std::string &cert_file,
-  //                        const std::string &key_file)
-  // {
-  //   try
-  //   {
-  //     // Load trusted CA
-  //     ctx.load_verify_file(ca_file);
-  //     // Load client certificate
-  //     ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
-  //     // Load private key
-  //     ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-  //   }
-  //   catch (const std::exception &e)
-  //   {
-  //     mt_logging::logger().log(
-  //         {fmt::format("Consumer::load certiciates {}", e.what()),
-  //          mt_logging::LogLevel::Info,
-  //          true});
-  //   }
-  // }
-
   Consumer::Consumer(
       const std::string &workerId,
       Awakener &awakener) : m_ioc{3},
