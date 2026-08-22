@@ -38,14 +38,11 @@ if compgen -G "output_*" > /dev/null; then
 fi
 
 export MTLOG_LEVEL=debug
-count=1
-while [ $count -le 3 ]; do
-  sleep .4
-  export WORKER_RECOVER_PENDING=off
-  export MTLOG_LOGFILE=output_rs_consumer_$count.log
-  (./$cmakedir/clientRedis/ClientRedis worker_$count > output_consumer_$count.log 2>&1 &)
-  ((count++))
-done
+
+sleep .4
+export WORKER_RECOVER_PENDING=off
+export MTLOG_LOGFILE=output_rs_consumer.log
+(./$cmakedir/clientRedis/ClientRedis > output_consumer_$$.log 2>&1 &)
 
 sleep .4
 export WORKER_RECOVER_PENDING=on

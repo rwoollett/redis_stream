@@ -15,6 +15,101 @@
 #include <string>
 #include <stdexcept>
 
+std::mutex cs_lock; // Critical section lock (DB + XACK)
+std::atomic<bool> stop_flag{false};
+
+void worker_thread(std::string worker_id)
+{
+  AwakenerWaitable awakener;
+  WorkQStream::Consumer redisConsumer(worker_id, awakener);
+
+  while (!stop_flag.load())
+  {
+    // Wait for next message from Redis
+    WorkItem work = awakener.wait_broadcast();
+
+    if (redisConsumer.is_signal_stopped())
+    {
+      stop_flag.store(true);
+      mt_logging::logger().log(
+          {"Consumer Signal to Stopped",
+           mt_logging::LogLevel::Info,
+           true});
+
+      continue;
+    }
+
+    const std::string &stream = work.stream;
+    const std::string &xid = work.id;
+    const auto &fields = work.fields;
+
+    mt_logging::logger().log(
+        {fmt::format("---  Consumer got msg:   [WORKER {}    STREAM {}      XID {}]  Fields: {}",
+                     worker_id, stream, xid, fmt::join(fields, ", ")),
+         mt_logging::LogLevel::Info,
+         true});
+
+    //
+    // 1. GLOBAL ORDERING BARRIER
+    //
+    while (true)
+    {
+      std::promise<std::string> p;
+      auto f = p.get_future();
+
+      redisConsumer.xpending_oldest_now(
+          stream,
+          std::getenv("WORKER_GROUP"),
+          [&](std::string oldest)
+          { p.set_value(oldest); });
+
+      std::string oldest = f.get();
+
+      if (oldest == xid)
+        break; // I am next in order
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    //
+    // 2. CRITICAL SECTION (DB + XACK)
+    //
+    {
+      std::lock_guard<std::mutex> guard(cs_lock);
+
+      // Simulate DB work
+      mt_logging::logger().log(
+          {fmt::format("#&!  Process for XID:  [WORKER {}    STREAM {}      XID {}]",
+                       worker_id, stream, xid),
+           mt_logging::LogLevel::Info,
+           true});
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+      // XACK MUST BE INSIDE THE LOCK
+      auto fut = redisConsumer.xack_wait_now(stream, xid);
+      auto ec = fut.get();
+
+      if (ec)
+      {
+        mt_logging::logger().log(
+            {fmt::format("#&!  XACK failed:      [WORKER {}    STREAM {}      XID {}] {}",
+                         worker_id, stream, xid, ec.message()),
+             mt_logging::LogLevel::Info, true});
+      }
+      else
+      {
+        mt_logging::logger().log(
+            {fmt::format("#&!  XACK OK           [WORKER {}    STREAM {}      XID {}]",
+                         worker_id, stream, xid),
+             mt_logging::LogLevel::Info, true});
+      }
+    }
+
+    // Lock released here
+  }
+}
+
 int main(int argc, char **argv)
 {
   int result = EXIT_SUCCESS;
@@ -29,12 +124,6 @@ int main(int argc, char **argv)
   if (!(redis_host && redis_port && redis_password))
   {
     std::cerr << "Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
-    exit(1);
-  }
-
-  if (argc < 2)
-  {
-    std::cout << "Require cmd arg for unique id. ie. worker_$$_$count.." << std::endl;
     exit(1);
   }
 
@@ -67,70 +156,15 @@ int main(int argc, char **argv)
     }
     else
     {
-      // Normal consumer of workqstreams
-      AwakenerWaitable awakener;
-      WorkQStream::Consumer redisConsumer(argv[1], awakener);
 
-      while (!m_worker_shall_stop)
-      {
-        WorkItem work = awakener.wait_broadcast();
+      std::thread w1(worker_thread, "worker_1");
+      std::thread w2(worker_thread, "worker_2");
+      std::thread w3(worker_thread, "worker_3");
 
-        if (redisConsumer.is_signal_stopped())
-        {
-          m_worker_shall_stop = true;
-          mt_logging::logger().log(
-              {"Consumer Signal to Stopped",
-               mt_logging::LogLevel::Info,
-               true});
-          continue;
-        }
+      w1.join();
+      w2.join();
+      w3.join();
 
-        // Now you actually have the data:
-        const std::string &stream = work.stream;
-        const std::string &id = work.id;
-        const auto &fields = work.fields;
-        mt_logging::logger().log(
-            {fmt::format("- Consumer work item: [STREAM {}       ID {}]  Fields: {}", stream, id, fmt::join(fields, ", ")),
-             mt_logging::LogLevel::Info,
-             true});
-        bool ok = false; // process_job(stream, fields);
-
-        while (true)
-        {
-          std::promise<std::string> p;
-          auto f = p.get_future();
-
-          redisConsumer.xpending_oldest_now(stream, std::string(WORKER_GROUP),
-                                             [&](std::string oldest)
-                                             { p.set_value(oldest); });
-
-          std::string oldest = f.get();
-
-          if (oldest == id)
-            break; // I am next in order
-
-          std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
-
-        // if (ok)
-        // {
-        if (stream == "liveposts_post_Create")
-        {
-          auto fut = redisConsumer.xack_wait_now(stream, id);
-
-          // release lock ONLY after XACK is confirmed
-          auto ec = fut.get();
-
-          if (ec)
-          {
-            mt_logging::logger().log(
-                {fmt::format("XACK failed: {}", ec.message()), mt_logging::LogLevel::Info, true});
-          }
-        }
-        // } else {
-        //   redisSubscribe.send_to_dlq_now(stream, id, fields);
-        // }
-      }
     } // else of WORKER_RECOVER_PENDING==on
   }
   catch (const std::exception &e)

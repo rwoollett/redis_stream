@@ -66,10 +66,10 @@ public:
       work_item.fields.emplace(k, v);
 
     {
-      mt_logging::logger().log(
-          {fmt::format("- broadcast_single work item: [STREAM {}       ID {}]  Fields: {}", work_item.stream, work_item.id, fmt::join(work_item.fields, ", ")),
-           mt_logging::LogLevel::Info,
-           true});
+      // mt_logging::logger().log(
+      //     {fmt::format("- broadcast_single work item: [STREAM {}       ID {}]  Fields: {}", work_item.stream, work_item.id, fmt::join(work_item.fields, ", ")),
+      //      mt_logging::LogLevel::Info,
+      //      true});
 
       std::unique_lock<std::mutex> cl(m_class_lock);
       m_work_queue.push(work_item);
