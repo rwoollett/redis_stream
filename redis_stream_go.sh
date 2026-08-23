@@ -44,10 +44,10 @@ export WORKER_RECOVER_PENDING=off
 export MTLOG_LOGFILE=output_rs_consumer.log
 (./$cmakedir/clientRedis/ClientRedis > output_consumer.log 2>&1 &)
 
-# sleep .4
-# export WORKER_RECOVER_PENDING=on
-# export MTLOG_LOGFILE=output_rs_consumer_recovery.log
-# (./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
+sleep .4
+export WORKER_RECOVER_PENDING=on
+export MTLOG_LOGFILE=output_rs_consumer_recovery.log
+(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
 
 sleep .4
 . ./set_env.sh
