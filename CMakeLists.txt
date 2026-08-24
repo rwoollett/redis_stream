@@ -58,6 +58,7 @@ if (BUILD_WORKQ_TESTS)
   )
 
   add_subdirectory(clientRedis)
+  add_subdirectory(clientAffinityRedis)
   add_subdirectory(clientProducer)
 endif()
 

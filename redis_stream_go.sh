@@ -1,9 +1,17 @@
 #!/bin/bash
 
 if [ -z "$1" ]; then
-  echo "Usage: $0 <cmake build dir>"
+  echo "Usage: $0 <cmake build dir> affinity?"
   exit 1
 fi
+
+if test "$2" = "affinity"; then
+  clientMode=clientAffinityRedis/ClientAffinityRedis
+else
+  clientMode=clientRedis/ClientRedis
+fi
+
+echo "Client mode: " $clientMode
 
 cmakedir=$1
 DIE=0
@@ -11,9 +19,9 @@ srcdir=`dirname $0`
 test -z "$srcdir" && srcdir=.
 pwd
 
-(test -f ./$cmakedir/clientRedis/ClientRedis) || {
+(test -f ./$cmakedir/$clientMode) || {
   echo
-  echo "**Error**: You must have a \"$cmakedir/clientRedis\" folder with file \"ClientRedis\" built from CMakeLists"
+  echo "**Error**: You must have a \"$cmakedir/$clientMode\" file built from CMakeLists"
   DIE=1
 }
 (test -f ./$cmakedir/clientProducer/ClientProducer) || {
@@ -42,7 +50,7 @@ export MTLOG_LEVEL=debug
 sleep .4
 export WORKER_RECOVER_PENDING=off
 export MTLOG_LOGFILE=output_rs_consumer.log
-(./$cmakedir/clientRedis/ClientRedis > output_consumer.log 2>&1 &)
+(./$cmakedir/$clientMode > output_consumer.log 2>&1 &)
 
 sleep .4
 export WORKER_RECOVER_PENDING=on
