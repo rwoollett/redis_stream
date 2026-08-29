@@ -59,7 +59,7 @@ namespace WorkQStream
         REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
         REDIS_XCLAIM_MIN_IDLE == nullptr)
     {
-      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_XCLAIM_MIN_IDLE and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("The environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_XCLAIM_MIN_IDLE and REDIS_USE_SSL must be set.");
     }
 
     m_is_connected.store(false);
