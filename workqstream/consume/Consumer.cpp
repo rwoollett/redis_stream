@@ -945,7 +945,7 @@ namespace WorkQStream
     redis::ignore_t ignore;
     mt_logging::logger().log(
         {fmt::format("XACK wait work item:  [STREAM {}      ID {}]  WORKER GROUP {}", stream, id, WORKER_GROUP),
-         mt_logging::LogLevel::Info,
+         mt_logging::LogLevel::Debug,
          true});
 
     co_await m_conn_write->async_exec(
