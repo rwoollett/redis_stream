@@ -130,7 +130,7 @@ void worker_thread(std::string worker_id)
     mt_logging::logger().log(
         {fmt::format("---  Steal ownership:   [WORKER {}    STREAM {}      XID {}     STEALED OWNER {}, BACKOFF {}]",
                      worker_id, oldest_stream, oldest_xid, owner, owner != worker_id),
-         mt_logging::LogLevel::Info, true});
+         mt_logging::LogLevel::Debug, true});
 
     if (owner != worker_id)
     {
@@ -153,7 +153,7 @@ void worker_thread(std::string worker_id)
       mt_logging::logger().log(
           {fmt::format("---  guard failed:      [WORKER {}    STREAM {}      XID {}]",
                        worker_id, oldest_stream, oldest_xid),
-           mt_logging::LogLevel::Info, true});
+           mt_logging::LogLevel::Debug, true});
 
       // DO NOT XCLAIM again immediately
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -187,7 +187,7 @@ void worker_thread(std::string worker_id)
         mt_logging::logger().log(
             {fmt::format("#&!  Owner stolen:      [WORKER {}    STREAM {}      XID {}    OWNER {}   CHECK {}]",
                          worker_id, oldest_stream, oldest_xid, owner, owner == worker_id),
-             mt_logging::LogLevel::Info, true});
+             mt_logging::LogLevel::Debug, true});
 
         clear_guard(oldest_stream, oldest_xid);
         // Unlock CS
@@ -208,7 +208,7 @@ void worker_thread(std::string worker_id)
       mt_logging::logger().log(
           {fmt::format("#&!  Process XID:       [WORKER {}    STREAM {}      XID {}  TIME {}]",
                        worker_id, oldest_stream, oldest_xid, td),
-           mt_logging::LogLevel::Info, true});
+           mt_logging::LogLevel::Debug, true});
 
       std::this_thread::sleep_for(std::chrono::milliseconds(td));
 
