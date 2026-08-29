@@ -324,14 +324,44 @@ namespace WorkQStream
           {fmt::format(" - Pending ID: {} consumer={} idle={} deliveries={}", p.id, p.consumer, p.idle_ms, p.delivery_count),
            mt_logging::LogLevel::Info,
            true});
+
       // Do DLQ logic
       if (p.delivery_count > 5)
       {
-        co_await send_to_dlq(stream, p.id, {/** field are missing can be found with XREADGROUP see later */}, conn);
-        // send_to_dlq_now(stream, p.id, {/** field are missing can be found with XREADGROUP see later */});
+        // 2. Claim the message
+        redis::request claim;
+        claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
+
+        // 3. Fetch the message fields
+        redis::request read_req;
+        read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id, "STREAMS", stream, p.id);
+
+        redis::generic_response read_resp;
+        co_await conn->async_exec(read_req, read_resp, asio::use_awaitable);
+
+        auto items = parse_dispatch_view(read_resp);
+
+        for (auto &item : items)
+        {
+          mt_logging::logger().log(
+              {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
+               mt_logging::LogLevel::Info,
+               true});
+
+          co_await send_to_dlq(stream, p.id, convert_fields(item), conn);
+        }
+
         continue;
       }
+
+      // Claim the message to count up delivery of poisoned msg
+      redis::request claim;
+      claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
+
+      redis::generic_response claim_resp;
+      co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
     }
+    
     co_return;
   }
 
