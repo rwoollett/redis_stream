@@ -86,10 +86,36 @@ namespace WorkQStream
     virtual ~Consumer();
 
     virtual bool is_signal_stopped() { return m_signal_status.load(); };
+
+    bool set_guard_key_now(const std::string &stream,
+                           const std::string &xid,
+                           const std::string &worker_id,
+                           int ttl_seconds);
+
+    void del_guard_key_now(const std::string &stream,
+                           const std::string &xid);
+
+    bool xclaim_now(const std::string &stream,
+                    const std::string &group,
+                    const std::string &consumer,
+                    const std::string &xid);
+
     void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
+
     void xpending_oldest_now(std::string stream, std::string group,
-                             std::function<void(std::string)> callback);
+                             std::function<void(std::string, std::string)> callback);
+
+    void xpending_oldest_across_streams_now(
+        std::vector<std::string> streams,
+        std::string group,
+        std::function<void(std::string, std::string)> callback);
+
+    std::string xpending_owner_now(
+        const std::string &stream,
+        const std::string &group,
+        const std::string &xid);
+
     void send_to_dlq_now(std::string stream, std::string id,
                          std::unordered_map<std::string, std::string> fields);
 
@@ -109,10 +135,28 @@ namespace WorkQStream
     asio::awaitable<void> run_consumer();
     asio::awaitable<void> co_main();
 
+    asio::awaitable<bool> set_guard_key(const std::string &stream,
+                                        const std::string &xid,
+                                        const std::string &worker_id,
+                                        int nxe);
+    asio::awaitable<void> del_guard_key(const std::string &stream,
+                                        const std::string &xid);
+
+    asio::awaitable<bool> xclaim(const std::string &stream,
+                                 const std::string &group,
+                                 const std::string &consumer,
+                                 const std::string &xid);
+
     asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     asio::awaitable<boost::system::error_code> xack_wait(std::string_view stream, std::string_view id);
+
+    asio::awaitable<std::string> xpending_owner(
+        const std::string &stream,
+        const std::string &group,
+        const std::string &xid);
+
     asio::awaitable<void> xpending_oldest(std::string_view stream_view, std::string_view group,
-                                          std::function<void(std::string)> callback);
+                                          std::function<void(std::string, std::string)> callback);
     asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
                                       const std::unordered_map<std::string, std::string> &fields);
     void push_dlq_xadd(redis::request &req,

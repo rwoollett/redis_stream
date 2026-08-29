@@ -66,7 +66,7 @@ void worker_thread(std::string worker_id)
       redisConsumer.xpending_oldest_now(
           stream,
           std::getenv("WORKER_GROUP"),
-          [&](std::string xid)
+          [&](std::string stream, std::string xid)
           {
             oldest = xid;
             xp_pending_ready.store(true);

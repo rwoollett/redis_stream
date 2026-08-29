@@ -25,6 +25,10 @@ public:
   ~AwakenerWaitable()
   {
     std::cerr << "Size awakener work queue " << m_work_queue.size() << std::endl;
+    // Clear the queue when stopped
+    while (!m_work_queue.empty())
+      m_work_queue.pop();
+    std::cerr << "Awakener work queue cleared" << std::endl;
   };
 
   // This function will block until there is at least one message to process.

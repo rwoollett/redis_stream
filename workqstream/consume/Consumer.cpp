@@ -22,6 +22,7 @@ namespace WorkQStream
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
+  static const char *REDIS_XCLAIM_MIN_IDLE = std::getenv("REDIS_XCLAIM_MIN_IDLE");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 10;
   static const int RECOVER_PENDING_DELAY = 10;
@@ -55,9 +56,10 @@ namespace WorkQStream
   {
     if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
-        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
+        REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
+        REDIS_XCLAIM_MIN_IDLE == nullptr)
     {
-      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_XCLAIM_MIN_IDLE and REDIS_USE_SSL must be set.");
     }
 
     m_is_connected.store(false);
@@ -531,6 +533,97 @@ namespace WorkQStream
     }
   }
 
+  bool Consumer::set_guard_key_now(const std::string &stream,
+                                   const std::string &xid,
+                                   const std::string &worker_id,
+                                   int ttl_seconds)
+  {
+    std::promise<bool> p;
+    auto fut = p.get_future();
+
+    // Dispatch onto write strand
+    asio::dispatch(
+        m_write_strand,
+        [this,
+         stream,
+         xid,
+         worker_id,
+         ttl_seconds,
+         &p]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this,
+               stream,
+               xid,
+               worker_id,
+               ttl_seconds,
+               &p]() mutable -> asio::awaitable<void>
+              {
+                bool ok = co_await set_guard_key(stream, xid, worker_id, ttl_seconds);
+                p.set_value(ok);
+                co_return;
+              },
+              asio::detached);
+        });
+
+    return fut.get(); // returns true if SETNX succeeded
+  }
+
+  void Consumer::del_guard_key_now(const std::string &stream,
+                                   const std::string &xid)
+  {
+    asio::dispatch(
+        m_write_strand,
+        [this, stream, xid]()
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream, xid]() -> asio::awaitable<void>
+              {
+                co_await del_guard_key(stream, xid);
+                co_return;
+              },
+              asio::detached);
+        });
+  }
+
+  bool Consumer::xclaim_now(const std::string &stream,
+                            const std::string &group,
+                            const std::string &consumer,
+                            const std::string &xid)
+  {
+    std::promise<bool> p;
+    auto fut = p.get_future();
+
+    asio::dispatch(
+        m_write_strand,
+        [this,
+         stream,
+         group,
+         consumer,
+         xid,
+         &p]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this,
+               stream,
+               group,
+               consumer,
+               xid,
+               &p]() mutable -> asio::awaitable<void>
+              {
+                bool ok = co_await xclaim(stream, group, consumer, xid);
+                p.set_value(ok);
+                co_return;
+              },
+              asio::detached);
+        });
+
+    return fut.get(); // true if XCLAIM succeeded (returned an ID)
+  }
+
   void Consumer::xack_now(std::string stream, std::string id)
   {
     if (m_signal_status.load())
@@ -572,9 +665,96 @@ namespace WorkQStream
     return p->get_future();
   }
 
+  std::string Consumer::xpending_owner_now(
+      const std::string &stream,
+      const std::string &group,
+      const std::string &xid)
+  {
+    std::promise<std::string> p;
+    auto fut = p.get_future();
+
+    asio::dispatch(
+        m_write_strand,
+        [this,
+         stream,
+         group,
+         xid,
+         &p]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this,
+               stream,
+               group,
+               xid,
+               &p]() mutable -> asio::awaitable<void>
+              {
+                std::string owner =
+                    co_await xpending_owner(stream, group, xid);
+
+                p.set_value(owner);
+                co_return;
+              },
+              asio::detached);
+        });
+
+    return fut.get();
+  }
+
+  void Consumer::xpending_oldest_across_streams_now(
+      std::vector<std::string> streams,
+      std::string group,
+      std::function<void(std::string, std::string)> callback)
+  {
+    if (m_signal_status.load())
+      return;
+
+    asio::dispatch(
+        m_write_strand,
+        [this,
+         streams = std::move(streams),
+         group = std::move(group),
+         callback = std::move(callback)]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this,
+               streams = std::move(streams),
+               group = std::move(group),
+               callback = std::move(callback)]() mutable -> asio::awaitable<void>
+              {
+                std::string best_stream;
+                std::string best_xid;
+
+                for (auto &stream : streams)
+                {
+                  std::string xid;
+                  co_await xpending_oldest(stream, group,
+                                           [&](std::string s, std::string x)
+                                           {
+                                             xid = x;
+                                           });
+
+                  if (!xid.empty())
+                  {
+                    if (best_xid.empty() || xid < best_xid)
+                    {
+                      best_xid = xid;
+                      best_stream = stream;
+                    }
+                  }
+                }
+
+                callback(best_stream, best_xid);
+                co_return;
+              },
+              asio::detached);
+        });
+  }
+
   void Consumer::xpending_oldest_now(std::string stream,
                                      std::string group,
-                                     std::function<void(std::string)> callback)
+                                     std::function<void(std::string, std::string)> callback)
   {
     if (m_signal_status.load())
       return;
@@ -643,6 +823,98 @@ namespace WorkQStream
     req.push_range("XADD", args);
   }
 
+  asio::awaitable<bool> Consumer::set_guard_key(const std::string &stream,
+                                                const std::string &xid,
+                                                const std::string &worker_id,
+                                                int ttl_seconds)
+  {
+    std::string key = "processing:" + stream + ":" + xid;
+
+    redis::request req;
+    req.push("SET", key, worker_id, "NX", "EX", std::to_string(ttl_seconds));
+
+    redis::generic_response resp;
+    boost::system::error_code ec;
+
+    co_await m_conn_write->async_exec(
+        req,
+        resp,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec)
+      co_return false;
+
+    // Redis returns "OK" if NX lock was acquired
+    if (resp.value().empty())
+      co_return false;
+
+    auto &node = resp.value().front();
+    if (node.value == "OK")
+      co_return true;
+
+    co_return false;
+  }
+
+  asio::awaitable<void> Consumer::del_guard_key(const std::string &stream,
+                                                const std::string &xid)
+  {
+    std::string key = "processing:" + stream + ":" + xid;
+
+    redis::request req;
+    req.push("DEL", key);
+
+    redis::generic_response resp;
+    boost::system::error_code ec;
+
+    co_await m_conn_write->async_exec(
+        req,
+        resp,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    co_return;
+  }
+
+  asio::awaitable<bool> Consumer::xclaim(const std::string &stream,
+                                         const std::string &group,
+                                         const std::string &consumer,
+                                         const std::string &xid)
+  {
+    redis::request req;
+
+    // XCLAIM mystream mygroup worker_2 0 <xid>
+    req.push("XCLAIM",
+             stream,
+             group,
+             consumer,
+             std::string(std::getenv("REDIS_XCLAIM_MIN_IDLE")), // "200", // min-idle = 200 (steal only when owner idle for too long. min_idle = 0 steals immediately)
+             xid);
+
+    redis::generic_response resp;
+    boost::system::error_code ec;
+
+    co_await m_conn_write->async_exec(
+        req,
+        resp,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec)
+      co_return false;
+
+    // XCLAIM returns an array of IDs it claimed.
+    // If empty → nothing claimed.
+    if (resp.value().empty())
+      co_return false;
+
+    // Should contain exactly one ID
+    auto &node = resp.value().front();
+
+    if (node.value.empty())
+      co_return false;
+
+    // If Redis returned the ID, XCLAIM succeeded
+    co_return true;
+  }
+
   asio::awaitable<void> Consumer::xack(std::string_view stream, std::string_view id)
   {
     redis::request req;
@@ -684,9 +956,43 @@ namespace WorkQStream
     co_return ec;
   }
 
+  asio::awaitable<std::string> Consumer::xpending_owner(
+      const std::string &stream,
+      const std::string &group,
+      const std::string &xid)
+  {
+    redis::request req;
+
+    // XPENDING mystream mygroup <xid> <xid> 1
+    req.push("XPENDING",
+             stream,
+             group,
+             xid,
+             xid,
+             "1");
+
+    redis::generic_response resp;
+    boost::system::error_code ec;
+
+    co_await m_conn_write->async_exec(
+        req,
+        resp,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec)
+      co_return std::string{}; // error → no owner
+
+    auto pendings = parse_xpending(resp);
+    if (pendings.empty())
+      co_return std::string{}; // not pending → no owner
+
+    // XPENDING entry contains: id, consumer, idle, deliveries
+    co_return pendings[0].consumer;
+  }
+
   asio::awaitable<void> Consumer::xpending_oldest(std::string_view stream,
                                                   std::string_view group,
-                                                  std::function<void(std::string)> callback)
+                                                  std::function<void(std::string, std::string)> callback)
   {
     redis::request req;
     req.push("XPENDING", stream, group, "-", "+", "1");
@@ -701,14 +1007,14 @@ namespace WorkQStream
 
     if (ec)
     {
-      callback(""); // no oldest xid
+      callback("", ""); // no oldest stream and xid
       co_return;
     }
 
     auto pendings = parse_xpending(resp);
     if (pendings.empty())
     {
-      callback(""); // no oldest xid
+      callback("", ""); // no oldest stream and xid
       co_return;
     }
 
@@ -720,7 +1026,7 @@ namespace WorkQStream
          mt_logging::LogLevel::Debug,
          true});
     oldest_xid = p.id;
-    callback(oldest_xid);
+    callback(std::string(stream), oldest_xid);
   }
 
   asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,

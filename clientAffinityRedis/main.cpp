@@ -22,105 +22,182 @@ void worker_thread(std::string worker_id)
   AwakenerWaitable awakener;
   WorkQStream::Consumer redisConsumer(worker_id, awakener);
 
+  const std::string group = std::getenv("WORKER_GROUP");
+
+  auto set_guard = [&](const std::string &stream,
+                       const std::string &xid) -> bool
+  {
+    // processing:{stream}:{xid} = worker_id NX EX 30
+    return redisConsumer.set_guard_key_now(stream, xid, worker_id, 30);
+  };
+
+  auto clear_guard = [&](const std::string &stream,
+                         const std::string &xid)
+  {
+    redisConsumer.del_guard_key_now(stream, xid);
+  };
+
   while (true)
   {
-    // Wait for next message from Redis
-    WorkItem work = awakener.wait_broadcast();
-
     if (redisConsumer.is_signal_stopped())
     {
       mt_logging::logger().log(
           {fmt::format("Consumer {} signaled to Stop {}", worker_id, 1),
-           mt_logging::LogLevel::Info,
-           true});
+           mt_logging::LogLevel::Info, true});
       return;
     }
 
-    const std::string &stream = work.stream;
-    const std::string &xid = work.id;
-    const auto &fields = work.fields;
+    //
+    // 1. Try to find oldest pending (global ordering)
+    //
+    std::atomic<bool> xp_pending_ready{false};
+    std::string oldest_stream;
+    std::string oldest_xid;
+
+    redisConsumer.xpending_oldest_across_streams_now(
+        {"liveposts_post_Create",
+         "liveposts_moderate_Job"},
+        group,
+        [&](std::string stream, std::string xid)
+        {
+          oldest_stream = stream;
+          oldest_xid = xid;
+          xp_pending_ready.store(true);
+        });
+
+    for (int i = 0; i < 200; ++i)
+    {
+      if (redisConsumer.is_signal_stopped())
+        return;
+
+      if (xp_pending_ready.load())
+        break;
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
     mt_logging::logger().log(
-        {fmt::format("---  Consumer got msg:   [WORKER {}    STREAM {}      XID {}]  Fields: {}",
-                     worker_id, stream, xid, fmt::join(fields, ", ")),
-         mt_logging::LogLevel::Info,
-         true});
+        {fmt::format("---  Pending status:    [WORKER {}   STREAM {}      XID {}  PENDING {}]",
+                     worker_id, oldest_stream, oldest_xid, xp_pending_ready.load()),
+         mt_logging::LogLevel::Debug, true});
 
-    //
-    // 1. GLOBAL ORDERING BARRIER
-    //
-    while (true)
+    // a) timeout: call never completed
+    if (!xp_pending_ready.load())
     {
-      if (redisConsumer.is_signal_stopped())
-      {
-        mt_logging::logger().log(
-            {fmt::format("Consumer {} signaled to Stop {}", worker_id, 2),
-             mt_logging::LogLevel::Info,
-             true});
-        return;
-      }
+      // fall back to XREADGROUP via awakener
+      mt_logging::logger().log(
+          {fmt::format("---  Wait (timeout):    [WORKER {}]", worker_id),
+           mt_logging::LogLevel::Debug, true});
 
-      std::atomic<bool> xp_pending_ready{false};
-      std::string oldest;
+      WorkItem work = awakener.wait_broadcast();
+      // delivered messages go into PEL; next loop we’ll see them
+      mt_logging::logger().log(
+          {fmt::format("---  Woke (timeout):    [WORKER {}    STREAM {}      XID {}]  Fields: {}",
+                       worker_id, work.stream, work.id, fmt::join(work.fields, ", ")),
+           mt_logging::LogLevel::Debug, true});
 
-      redisConsumer.xpending_oldest_now(
-          stream,
-          std::getenv("WORKER_GROUP"),
-          [&](std::string xid)
-          {
-            oldest = xid;
-            xp_pending_ready.store(true);
-            //
-          });
-
-      for (int i = 0; i < 200; ++i)
-      {
-        if (redisConsumer.is_signal_stopped())
-        {
-          mt_logging::logger().log(
-              {fmt::format("Consumer {} signaled to Stop {}", worker_id, 3),
-               mt_logging::LogLevel::Info,
-               true});
-          return;
-        }
-
-        if (xp_pending_ready.load())
-          break;
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-      if (redisConsumer.is_signal_stopped())
-      {
-        mt_logging::logger().log(
-            {fmt::format("Consumer {} signaled to Stop {}", worker_id, 4),
-             mt_logging::LogLevel::Info,
-             true});
-        return;
-      }
-
-      if (oldest == xid)
-        break; // I am next in order
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      continue;
     }
-
-    if (redisConsumer.is_signal_stopped())
+    // b) call completed but no pending (empty stream/xid)
+    if (oldest_stream.empty() || oldest_xid.empty())
     {
       mt_logging::logger().log(
-          {fmt::format("Consumer {} signaled to Stop {}", worker_id, 5),
-           mt_logging::LogLevel::Info,
-           true});
-      return;
+          {fmt::format("---  Wait (No pending): [WORKER {}]", worker_id),
+           mt_logging::LogLevel::Debug, true});
+
+      WorkItem work = awakener.wait_broadcast();
+      mt_logging::logger().log(
+          {fmt::format("---  Woke (No pending): [WORKER {}    STREAM {}      XID {}]  Fields: {}",
+                       worker_id, work.stream, work.id, fmt::join(work.fields, ", ")),
+           mt_logging::LogLevel::Debug, true});
+      continue;
+    }
+
+    // 2) we have a real oldest pending → proceed with stealing
+    mt_logging::logger().log(
+        {fmt::format("---  Oldest pending:    [WORKER {}    STREAM {}      XID {}]",
+                     worker_id, oldest_stream, oldest_xid),
+         mt_logging::LogLevel::Debug, true});
+    //
+    // 3. Try to steal ownership of oldest (XCLAIM) - min-idle > 0 to let owners process
+    //
+    redisConsumer.xclaim_now(oldest_stream, group, worker_id, oldest_xid);
+
+    // 4. Check current owner
+    std::string owner = redisConsumer.xpending_owner_now(
+        oldest_stream, group, oldest_xid);
+
+    mt_logging::logger().log(
+        {fmt::format("---  Steal ownership:   [WORKER {}    STREAM {}      XID {}     STEALED OWNER {}, BACKOFF {}]",
+                     worker_id, oldest_stream, oldest_xid, owner, owner != worker_id),
+         mt_logging::LogLevel::Info, true});
+
+    if (owner != worker_id)
+    {
+      // someone else owns it → small backoff, then re-loop
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      continue;
     }
 
     //
-    // 2. CRITICAL SECTION (DB + XACK)
+    // 5. Acquire atomic guard (SETNX)
+    //
+    mt_logging::logger().log(
+        {fmt::format("---  Guard attempt:     [WORKER {}   STREAM {}      XID {}]",
+                     worker_id, oldest_stream, oldest_xid),
+         mt_logging::LogLevel::Debug, true});
+
+    if (!set_guard(oldest_stream, oldest_xid))
+    {
+      // someone else is already processing it
+      mt_logging::logger().log(
+          {fmt::format("---  guard failed:      [WORKER {}    STREAM {}      XID {}]",
+                       worker_id, oldest_stream, oldest_xid),
+           mt_logging::LogLevel::Info, true});
+
+      // DO NOT XCLAIM again immediately
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      continue;
+    }
+
+    //
+    // 6. Acquire network CS lock
     //
     {
       std::lock_guard<std::mutex> guard(cs_lock);
 
-      // Simulate DB work
-      auto td = 0;
+      if (redisConsumer.is_signal_stopped())
+      {
+        clear_guard(oldest_stream, oldest_xid);
+        // Unlock CS
+        return;
+      }
+
+      // 7. Re-check ownership inside CS
+      owner = redisConsumer.xpending_owner_now(
+          oldest_stream, group, oldest_xid);
+
+      mt_logging::logger().log(
+          {fmt::format("#&!  Owner recheck:     [WORKER {}    STREAM {}      XID {}    OWNER {}   CHECK {}]",
+                       worker_id, oldest_stream, oldest_xid, owner, owner == worker_id),
+           mt_logging::LogLevel::Debug, true});
+
+      if (owner != worker_id)
+      {
+        mt_logging::logger().log(
+            {fmt::format("#&!  Owner stolen:      [WORKER {}    STREAM {}      XID {}    OWNER {}   CHECK {}]",
+                         worker_id, oldest_stream, oldest_xid, owner, owner == worker_id),
+             mt_logging::LogLevel::Info, true});
+
+        clear_guard(oldest_stream, oldest_xid);
+        // Unlock CS
+        continue; // someone stole it while we waited
+      }
+
+      //
+      // 8. Process (DB work)
+      //
+      int td = 0;
       if (worker_id == "worker_3")
         td = 250;
       else if (worker_id == "worker_2")
@@ -129,46 +206,49 @@ void worker_thread(std::string worker_id)
         td = 50;
 
       mt_logging::logger().log(
-          {fmt::format("#&!  {}  Process for XID:  [WORKER {}    STREAM {}      XID {}]",
-                       td, worker_id, stream, xid),
-           mt_logging::LogLevel::Info,
-           true});
+          {fmt::format("#&!  Process XID:       [WORKER {}    STREAM {}      XID {}  TIME {}]",
+                       worker_id, oldest_stream, oldest_xid, td),
+           mt_logging::LogLevel::Info, true});
 
       std::this_thread::sleep_for(std::chrono::milliseconds(td));
+
       if (redisConsumer.is_signal_stopped())
       {
-        mt_logging::logger().log(
-            {fmt::format("Consumer {} signaled to Stop {}", worker_id, 6),
-             mt_logging::LogLevel::Info,
-             true});
+        clear_guard(oldest_stream, oldest_xid);
+        // Unlock CS
         return;
       }
 
-      // XACK MUST BE INSIDE THE LOCK
-      auto fut = redisConsumer.xack_wait_now(stream, xid);
+      //
+      // 9. XACK inside lock
+      //
+      auto fut = redisConsumer.xack_wait_now(oldest_stream, oldest_xid);
       auto ec = fut.get();
       mt_logging::logger().log(
-          {fmt::format("Consumer {} xack wait ec {}", worker_id, ec.message()),
-           mt_logging::LogLevel::Info,
-           true});
+          {fmt::format("#&!  xack wait ec       [WORKER {}    EC {}", worker_id, ec.message()),
+           mt_logging::LogLevel::Debug, true});
 
       if (ec)
       {
         mt_logging::logger().log(
-            {fmt::format("#&!  XACK failed:      [WORKER {}    STREAM {}      XID {}] {}",
-                         worker_id, stream, xid, ec.message()),
-             mt_logging::LogLevel::Info, true});
+            {fmt::format("#&!  XACK failed:       [WORKER {}    STREAM {}      XID {}]",
+                         worker_id, oldest_stream, oldest_xid, ec.message()),
+             mt_logging::LogLevel::Error, true});
       }
       else
       {
         mt_logging::logger().log(
-            {fmt::format("#&!  XACK OK           [WORKER {}    STREAM {}      XID {}]",
-                         worker_id, stream, xid),
+            {fmt::format("#&!  XACK OK            [WORKER {}    STREAM {}      XID {}]",
+                         worker_id, oldest_stream, oldest_xid),
              mt_logging::LogLevel::Info, true});
       }
     }
 
-    // Lock released here
+    //
+    // 10. Release atomic guard
+    //
+    clear_guard(oldest_stream, oldest_xid);
+
     std::cerr << "running " << worker_id << "\n";
   }
 }
@@ -222,11 +302,11 @@ int main(int argc, char **argv)
 
       std::thread w1(worker_thread, "worker_1");
       std::thread w2(worker_thread, "worker_2");
-      //std::thread w3(worker_thread, "worker_3");
+      // std::thread w3(worker_thread, "worker_3");
 
       w1.join();
       w2.join();
-      //w3.join();
+      // w3.join();
 
     } // else of WORKER_RECOVER_PENDING==on
   }
