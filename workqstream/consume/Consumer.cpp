@@ -665,6 +665,52 @@ namespace WorkQStream
     return p->get_future();
   }
 
+  void Consumer::send_to_dlq_now(std::string stream,
+                                 std::string id,
+                                 std::unordered_map<std::string, std::string> fields)
+  {
+    if (m_signal_status.load())
+      return;
+
+    asio::dispatch(
+        m_write_strand,
+        [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable -> asio::awaitable<void>
+              {
+                co_await send_to_dlq(stream, id, fields);
+              },
+              asio::detached);
+        });
+  }
+
+  std::future<boost::system::error_code>
+  Consumer::send_to_dlq_wait_now(
+      std::string stream, std::string id,
+      std::unordered_map<std::string, std::string>
+          fields)
+  {
+    auto p = std::make_shared<std::promise<boost::system::error_code>>();
+
+    asio::dispatch(
+        m_write_strand,
+        [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields), p]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields), p]() mutable -> asio::awaitable<void>
+              {
+                auto ec = co_await send_to_dlq_wait(stream, id, fields);
+                p->set_value(ec);
+              },
+              asio::detached);
+        });
+
+    return p->get_future();
+  }
+
   std::string Consumer::xpending_owner_now(
       const std::string &stream,
       const std::string &group,
@@ -774,27 +820,6 @@ namespace WorkQStream
                callback = std::move(callback)]() mutable -> asio::awaitable<void>
               {
                 co_await xpending_oldest(stream, group, callback);
-              },
-              asio::detached);
-        });
-  }
-
-  void Consumer::send_to_dlq_now(std::string stream,
-                                 std::string id,
-                                 std::unordered_map<std::string, std::string> fields)
-  {
-    if (m_signal_status.load())
-      return;
-
-    asio::dispatch(
-        m_write_strand,
-        [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable
-        {
-          asio::co_spawn(
-              m_write_strand,
-              [this, stream = std::move(stream), id = std::move(id), fields = std::move(fields)]() mutable -> asio::awaitable<void>
-              {
-                co_await send_to_dlq(stream, id, fields);
               },
               asio::detached);
         });
@@ -956,6 +981,46 @@ namespace WorkQStream
     co_return ec;
   }
 
+  asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,
+                                              const std::unordered_map<std::string, std::string> &fields)
+  {
+    redis::request req;
+    push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
+    mt_logging::logger().log(
+        {fmt::format("DLQ'd work item:      [STREAM {}      ID {}]  WORKER GROUP {}", std::string(stream) + ".DLQ", id, WORKER_GROUP),
+         mt_logging::LogLevel::Debug, true});
+
+    boost::system::error_code ec;
+    co_await m_conn_write->async_exec(req, redis::ignore, asio::redirect_error(asio::use_awaitable, ec));
+    if (ec)
+    {
+      mt_logging::logger().log(
+          {fmt::format("DLQ XADD failed: {}", ec.message()),
+           mt_logging::LogLevel::Error, true});
+      co_return;
+    }
+
+    // Remove from PEL
+    co_await xack(stream, id);
+  }
+
+  asio::awaitable<boost::system::error_code> Consumer::send_to_dlq_wait(std::string_view stream, std::string_view id,
+                                                                        const std::unordered_map<std::string, std::string> &fields)
+  {
+    redis::request req;
+    push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
+
+    boost::system::error_code ec;
+    redis::ignore_t ignore;
+    mt_logging::logger().log(
+        {fmt::format("DLQ'd work item:        [STREAM {}      ID {}]  WORKER GROUP {}", std::string(stream) + ".DLQ", id, WORKER_GROUP),
+         mt_logging::LogLevel::Debug, true});
+
+    co_await m_conn_write->async_exec(req, ignore, asio::redirect_error(asio::use_awaitable, ec));
+
+    co_return ec;
+  }
+
   asio::awaitable<std::string> Consumer::xpending_owner(
       const std::string &stream,
       const std::string &group,
@@ -1027,29 +1092,6 @@ namespace WorkQStream
          true});
     oldest_xid = p.id;
     callback(std::string(stream), oldest_xid);
-  }
-
-  asio::awaitable<void> Consumer::send_to_dlq(std::string_view stream, std::string_view id,
-                                              const std::unordered_map<std::string, std::string> &fields)
-  {
-    redis::request req;
-    push_dlq_xadd(req, std::string(stream) + ".DLQ", id, fields);
-    mt_logging::logger().log(
-        {fmt::format("DLQ'd work item:      [STREAM {}      ID {}]  WORKER GROUP {}", std::string(stream) + ".DLQ", id, WORKER_GROUP),
-         mt_logging::LogLevel::Info, true});
-
-    boost::system::error_code ec;
-    co_await m_conn_write->async_exec(req, redis::ignore, asio::redirect_error(asio::use_awaitable, ec));
-    if (ec)
-    {
-      mt_logging::logger().log(
-          {fmt::format("DLQ XADD failed: {}", ec.message()),
-           mt_logging::LogLevel::Error, true});
-      co_return;
-    }
-
-    // Remove from PEL
-    co_await xack(stream, id);
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)

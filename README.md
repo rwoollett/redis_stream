@@ -94,6 +94,19 @@ This is the structure of the files in the project:
     ├── redis_stream_stop.sh
     └─ README.md               # This README.md document
  
+
+# Redis Container 
+
+Run a client in the container:
+
+Use docker exec to run a shell
+
+```sh
+docker exec -it cache sh
 ```
 
+```sh
+redis-cli --tls --cert /tls/redis.crt --key  /tls/redis.key --cacert /tls/ca.crt 
 ```
+
+XADD liveposts_post_Create * postid c1234 postname category

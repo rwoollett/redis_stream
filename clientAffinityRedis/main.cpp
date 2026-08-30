@@ -118,6 +118,7 @@ void worker_thread(std::string worker_id)
         {fmt::format("---  Oldest pending:    [WORKER {}    STREAM {}      XID {}]",
                      worker_id, oldest_stream, oldest_xid),
          mt_logging::LogLevel::Debug, true});
+
     //
     // 3. Try to steal ownership of oldest (XCLAIM) - min-idle > 0 to let owners process
     //
@@ -219,19 +220,37 @@ void worker_thread(std::string worker_id)
         return;
       }
 
+      // When a liveposts_moderate_Job msg exit early to see the unknown stream error
+      if (oldest_stream == "liveposts_moderate_Job")
+      {
+        // 9. DLQ send - XACK later as normal
+        auto fut = redisConsumer.send_to_dlq_wait_now(oldest_stream, oldest_xid, {});
+        auto ec = fut.get();
+        if (ec)
+        {
+          mt_logging::logger().log(
+              {fmt::format("#&!  DLQ XADD failed:   [WORKER {}    STREAM {}      XID {}] {}",
+                           worker_id, oldest_stream, oldest_xid, ec.message()),
+               mt_logging::LogLevel::Error, true});
+        }
+        else
+        {
+          mt_logging::logger().log(
+              {fmt::format("#&!  DLQ XADD OK        [WORKER {}    STREAM {}      XID {}]",
+                           worker_id, oldest_stream, oldest_xid),
+               mt_logging::LogLevel::Info, true});
+        }
+      }
+
       //
       // 9. XACK inside lock
       //
       auto fut = redisConsumer.xack_wait_now(oldest_stream, oldest_xid);
       auto ec = fut.get();
-      mt_logging::logger().log(
-          {fmt::format("#&!  xack wait ec       [WORKER {}    EC {}", worker_id, ec.message()),
-           mt_logging::LogLevel::Debug, true});
-
       if (ec)
       {
         mt_logging::logger().log(
-            {fmt::format("#&!  XACK failed:       [WORKER {}    STREAM {}      XID {}]",
+            {fmt::format("#&!  XACK failed:       [WORKER {}    STREAM {}      XID {}] {}",
                          worker_id, oldest_stream, oldest_xid, ec.message()),
              mt_logging::LogLevel::Error, true});
       }

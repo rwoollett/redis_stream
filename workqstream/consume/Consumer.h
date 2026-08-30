@@ -103,6 +103,13 @@ namespace WorkQStream
     void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
 
+    void send_to_dlq_now(std::string stream, std::string id,
+                         std::unordered_map<std::string, std::string> fields);
+    std::future<boost::system::error_code> send_to_dlq_wait_now(
+        std::string stream, std::string id,
+        std::unordered_map<std::string, std::string>
+            fields);
+
     void xpending_oldest_now(std::string stream, std::string group,
                              std::function<void(std::string, std::string)> callback);
 
@@ -115,9 +122,6 @@ namespace WorkQStream
         const std::string &stream,
         const std::string &group,
         const std::string &xid);
-
-    void send_to_dlq_now(std::string stream, std::string id,
-                         std::unordered_map<std::string, std::string> fields);
 
     void request_stop();
     void join();
@@ -150,6 +154,11 @@ namespace WorkQStream
     asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     asio::awaitable<boost::system::error_code> xack_wait(std::string_view stream, std::string_view id);
 
+    asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
+                                      const std::unordered_map<std::string, std::string> &fields);
+    asio::awaitable<boost::system::error_code> send_to_dlq_wait(std::string_view stream, std::string_view id,
+                                                                const std::unordered_map<std::string, std::string> &fields);
+
     asio::awaitable<std::string> xpending_owner(
         const std::string &stream,
         const std::string &group,
@@ -157,8 +166,7 @@ namespace WorkQStream
 
     asio::awaitable<void> xpending_oldest(std::string_view stream_view, std::string_view group,
                                           std::function<void(std::string, std::string)> callback);
-    asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
-                                      const std::unordered_map<std::string, std::string> &fields);
+
     void push_dlq_xadd(redis::request &req,
                        const std::string &stream,
                        std::string_view id,

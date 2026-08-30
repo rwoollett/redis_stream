@@ -334,21 +334,23 @@ namespace WorkQStream
 
         // 3. Fetch the message fields
         redis::request read_req;
-        read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id, "STREAMS", stream, p.id);
+        read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id,
+                      "COUNT", "1",
+                      "STREAMS", stream, p.id);
 
         redis::generic_response read_resp;
         co_await conn->async_exec(read_req, read_resp, asio::use_awaitable);
 
         auto items = parse_dispatch_view(read_resp);
-
-        for (auto &item : items)
+        if (!items.empty())
         {
+          auto &item = items.front();
           mt_logging::logger().log(
               {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
                mt_logging::LogLevel::Info,
                true});
 
-          co_await send_to_dlq(stream, p.id, convert_fields(item), conn);
+          co_await send_to_dlq(stream, item.id, convert_fields(item), conn);
         }
 
         continue;
@@ -361,7 +363,7 @@ namespace WorkQStream
       redis::generic_response claim_resp;
       co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
     }
-    
+
     co_return;
   }
 

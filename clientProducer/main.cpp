@@ -91,7 +91,7 @@ int main(int argc, char **argv)
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
       std::cout << "Press any key to publish..." << std::endl;
       char key = read_getch();
       std::cerr << "[" << key << "]" << std::endl;
@@ -113,7 +113,8 @@ int main(int argc, char **argv)
       else
       {
         doWork("liveposts_post_Create", {{"postid", "c1234"}, {"postname", "category"}});
-       // doWork("liveposts_moderate_Job");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        doWork("liveposts_moderate_Job");
       }
     }
   }
