@@ -100,11 +100,8 @@ namespace WorkQStream
                     const std::string &consumer,
                     const std::string &xid);
 
-    void xack_now(std::string stream, std::string id);
     std::future<boost::system::error_code> xack_wait_now(std::string stream, std::string id);
 
-    void send_to_dlq_now(std::string stream, std::string id,
-                         std::unordered_map<std::string, std::string> fields);
     std::future<boost::system::error_code> send_to_dlq_wait_now(
         std::string stream, std::string id,
         std::unordered_map<std::string, std::string>
@@ -151,11 +148,8 @@ namespace WorkQStream
                                  const std::string &consumer,
                                  const std::string &xid);
 
-    asio::awaitable<void> xack(std::string_view stream, std::string_view id);
     asio::awaitable<boost::system::error_code> xack_wait(std::string_view stream, std::string_view id);
 
-    asio::awaitable<void> send_to_dlq(std::string_view stream, std::string_view id,
-                                      const std::unordered_map<std::string, std::string> &fields);
     asio::awaitable<boost::system::error_code> send_to_dlq_wait(std::string_view stream, std::string_view id,
                                                                 const std::unordered_map<std::string, std::string> &fields);
 
