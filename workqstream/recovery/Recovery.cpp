@@ -332,6 +332,9 @@ namespace WorkQStream
         redis::request claim;
         claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
 
+        redis::generic_response claim_resp;
+        co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
+
         // 3. Fetch the message fields
         redis::request read_req;
         read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id,
