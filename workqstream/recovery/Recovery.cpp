@@ -334,11 +334,26 @@ namespace WorkQStream
 
         redis::generic_response claim_resp;
         co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
+        // If empty → nothing claimed.
+
+        std::string claim_xid{""};
+        if (!claim_resp.value().empty())
+        {
+          // Should contain exactly one ID
+          auto &node = claim_resp.value().front();
+          if (!node.value.empty())
+            claim_xid = node.value;
+        }
+
+        mt_logging::logger().log(
+            {fmt::format("XCLAIMED message:     [STREAM {}       CLAIM ID {}]", stream, claim_xid),
+             mt_logging::LogLevel::Info,
+             true});
 
         // 3. Fetch the message fields
         redis::request read_req;
         read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id,
-                      "COUNT", "1",
+                      "COUNT", "10",
                       "STREAMS", stream, p.id);
 
         redis::generic_response read_resp;
@@ -347,13 +362,19 @@ namespace WorkQStream
         auto items = parse_dispatch_view(read_resp);
         if (!items.empty())
         {
-          auto &item = items.front();
-          mt_logging::logger().log(
-              {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
-               mt_logging::LogLevel::Info,
-               true});
+          for (auto &item : items)
+          {
+            // auto &item = items.front();
+            if (item.id == p.id)
+            {
+              mt_logging::logger().log(
+                  {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
+                   mt_logging::LogLevel::Info,
+                   true});
 
-          co_await send_to_dlq(stream, item.id, convert_fields(item), conn);
+              co_await send_to_dlq(stream, item.id, convert_fields(item), conn);
+            }
+          }
         }
 
         continue;
