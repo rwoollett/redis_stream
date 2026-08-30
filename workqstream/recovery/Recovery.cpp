@@ -334,15 +334,13 @@ namespace WorkQStream
 
         redis::generic_response claim_resp;
         co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
-        // If empty → nothing claimed.
-
         std::string claim_xid{""};
         if (!claim_resp.value().empty())
         {
           // Should contain exactly one ID
           auto &node = claim_resp.value().front();
           if (!node.value.empty())
-            claim_xid = node.value;
+            claim_xid = std::string(node.value);
         }
 
         mt_logging::logger().log(
@@ -351,30 +349,25 @@ namespace WorkQStream
              true});
 
         // 3. Fetch the message fields
-        redis::request read_req;
-        read_req.push("XREADGROUP", "GROUP", WORKER_GROUP, m_worker_id,
-                      "COUNT", "10",
-                      "STREAMS", stream, p.id);
+        //    Fetch fields by exact ID
+        redis::request range;
+        range.push("XRANGE", stream, p.id, p.id);
 
-        redis::generic_response read_resp;
-        co_await conn->async_exec(read_req, read_resp, asio::use_awaitable);
+        redis::generic_response range_resp;
+        co_await conn->async_exec(range, range_resp, asio::use_awaitable);
 
-        auto items = parse_dispatch_view(read_resp);
+        auto items = parse_xrange(range_resp);
         if (!items.empty())
         {
-          for (auto &item : items)
-          {
-            // auto &item = items.front();
-            if (item.id == p.id)
-            {
-              mt_logging::logger().log(
-                  {fmt::format("XCLAIMED message:     [STREAM {}      ID {}]  Fields: {}", item.stream, item.id, fmt::join(item.fields, " = ")),
-                   mt_logging::LogLevel::Info,
-                   true});
+          auto &item = items.front();
+          mt_logging::logger().log(
+              {fmt::format("Send to DLQ and XACK: [STREAM {}      ID {}]  Fields: {}",
+                           stream, item.id, fmt::join(item.fields, " = ")),
+               mt_logging::LogLevel::Info,
+               true});
 
-              co_await send_to_dlq(stream, item.id, convert_fields(item), conn);
-            }
-          }
+          // Send to DLQ and XACK
+          co_await send_to_dlq(stream, item.id, convert_fields(item), conn);
         }
 
         continue;
@@ -385,6 +378,20 @@ namespace WorkQStream
       claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
 
       redis::generic_response claim_resp;
+      std::string claim_xid{""};
+      if (!claim_resp.value().empty())
+      {
+        // Should contain exactly one ID
+        auto &node = claim_resp.value().front();
+        if (!node.value.empty())
+          claim_xid = std::string(node.value);
+      }
+
+      mt_logging::logger().log(
+          {fmt::format("XCLAIMED message:     [STREAM {}       CLAIM ID {}]", stream, claim_xid),
+           mt_logging::LogLevel::Info,
+           true});
+
       co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
     }
 

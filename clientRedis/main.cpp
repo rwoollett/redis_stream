@@ -144,6 +144,29 @@ void worker_thread(std::string worker_id)
         return;
       }
 
+            // When a liveposts_moderate_Job msg exit early to see the unknown stream error
+      if (stream == "liveposts_moderate_Job")
+      {
+        //continue;
+        //9. DLQ send - XACK later as normal
+        auto fut = redisConsumer.send_to_dlq_wait_now(stream, xid, {});
+        auto ec = fut.get();
+        if (ec)
+        {
+          mt_logging::logger().log(
+              {fmt::format("#&!  DLQ XADD failed:   [WORKER {}    STREAM {}      XID {}] {}",
+                           worker_id, stream, xid, ec.message()),
+               mt_logging::LogLevel::Error, true});
+        }
+        else
+        {
+          mt_logging::logger().log(
+              {fmt::format("#&!  DLQ XADD OK        [WORKER {}    STREAM {}      XID {}]",
+                           worker_id, stream, xid),
+               mt_logging::LogLevel::Info, true});
+        }
+      }
+
       // XACK MUST BE INSIDE THE LOCK
       auto fut = redisConsumer.xack_wait_now(stream, xid);
       auto ec = fut.get();

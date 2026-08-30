@@ -158,6 +158,53 @@ namespace WorkQStream
     return out;
   }
 
+  std::vector<DispatchView> parse_xrange(const redis::generic_response &resp)
+  {
+    std::vector<DispatchView> out;
+
+    DispatchView current{};
+    std::string_view current_key;
+
+    for (auto const &n : resp.value())
+    {
+      // Message ID (depth=2)
+      if (n.depth == 2 &&
+          n.data_type == boost::redis::resp3::type::blob_string)
+      {
+        // Start new message
+        if (!current.id.empty())
+        {
+          out.push_back(std::move(current));
+          current = DispatchView{};
+        }
+
+        current.id = n.value;
+        continue;
+      }
+
+      // Field key/value (depth=3)
+      if (n.depth == 3 &&
+          n.data_type == boost::redis::resp3::type::blob_string)
+      {
+        if (current_key.empty())
+        {
+          current_key = n.value;
+        }
+        else
+        {
+          current.fields.emplace_back(current_key, n.value);
+          current_key = {};
+        }
+        continue;
+      }
+    }
+
+    if (!current.id.empty())
+      out.push_back(std::move(current));
+
+    return out;
+  }
+
   std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
   {
     std::unordered_map<std::string, std::string> field_map;
