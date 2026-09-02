@@ -345,7 +345,7 @@ namespace WorkQStream
         }
 
         mt_logging::logger().log(
-            {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {} {}]", stream, claim_xid, claim_resp.value().empty()),
+            {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),
              mt_logging::LogLevel::Info,
              true});
 
@@ -382,19 +382,31 @@ namespace WorkQStream
       co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
 
       std::string claim_xid{""};
+      for (auto const &n : claim_resp.value())
+      {
+        std::cerr << "depth=" << n.depth
+                  << " type=" << int(n.data_type)
+                  << " value='" << n.value << "'\n";
+      }
+
       if (!claim_resp.value().empty())
       {
-        // Should contain exactly one ID
         auto &node = claim_resp.value().front();
-        if (!node.value.empty())
+        if (node.data_type == boost::redis::resp3::type::blob_string &&
+            !node.value.empty())
+        {
           claim_xid = std::string(node.value);
+        }
+        else
+        {
+          // XCLAIM failed
+        }
       }
 
       mt_logging::logger().log(
-          {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {} {}]", stream, claim_xid, claim_resp.value().empty()),
+          {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),
            mt_logging::LogLevel::Info,
            true});
-
     }
 
     co_return;
