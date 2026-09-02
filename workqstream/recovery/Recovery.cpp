@@ -334,6 +334,7 @@ namespace WorkQStream
 
         redis::generic_response claim_resp;
         co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
+
         std::string claim_xid{""};
         if (!claim_resp.value().empty())
         {
@@ -378,6 +379,8 @@ namespace WorkQStream
       claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
 
       redis::generic_response claim_resp;
+      co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
+
       std::string claim_xid{""};
       if (!claim_resp.value().empty())
       {
@@ -392,7 +395,6 @@ namespace WorkQStream
            mt_logging::LogLevel::Info,
            true});
 
-      co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
     }
 
     co_return;
