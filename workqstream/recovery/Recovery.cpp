@@ -335,14 +335,7 @@ namespace WorkQStream
         redis::generic_response claim_resp;
         co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
 
-        std::string claim_xid{""};
-        if (!claim_resp.value().empty())
-        {
-          // Should contain exactly one ID
-          auto &node = claim_resp.value().front();
-          if (!node.value.empty())
-            claim_xid = std::string(node.value);
-        }
+        std::string claim_xid = parse_xclaim_id(claim_resp);
 
         mt_logging::logger().log(
             {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),
@@ -377,31 +370,10 @@ namespace WorkQStream
       // Claim the message to count up delivery of poisoned msg
       redis::request claim;
       claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
-
       redis::generic_response claim_resp;
       co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
 
-      std::string claim_xid{""};
-      for (auto const &n : claim_resp.value())
-      {
-        std::cerr << "depth=" << n.depth
-                  << " type=" << int(n.data_type)
-                  << " value='" << n.value << "'\n";
-      }
-
-      if (!claim_resp.value().empty())
-      {
-        auto &node = claim_resp.value().front();
-        if (node.data_type == boost::redis::resp3::type::blob_string &&
-            !node.value.empty())
-        {
-          claim_xid = std::string(node.value);
-        }
-        else
-        {
-          // XCLAIM failed
-        }
-      }
+      std::string claim_xid = parse_xclaim_id(claim_resp);
 
       mt_logging::logger().log(
           {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),

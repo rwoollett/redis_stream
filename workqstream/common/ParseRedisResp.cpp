@@ -205,6 +205,21 @@ namespace WorkQStream
     return out;
   }
 
+  std::string parse_xclaim_id(const redis::generic_response &resp)
+  {
+    for (auto const &n : resp.value())
+    {
+      // XCLAIM returns the ID at depth=2 as a blob_string
+      if (n.depth == 2 &&
+          n.data_type == boost::redis::resp3::type::blob_string &&
+          !n.value.empty())
+      {
+        return std::string(n.value);
+      }
+    }
+    return ""; // XCLAIM failed or returned JUSTID empty
+  }
+
   std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
   {
     std::unordered_map<std::string, std::string> field_map;
