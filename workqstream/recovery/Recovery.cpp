@@ -345,7 +345,7 @@ namespace WorkQStream
         }
 
         mt_logging::logger().log(
-            {fmt::format("XCLAIMED message:     [STREAM {}       CLAIM ID {}]", stream, claim_xid),
+            {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {} {}]", stream, claim_xid, claim_resp.value().empty()),
              mt_logging::LogLevel::Info,
              true});
 
@@ -391,7 +391,7 @@ namespace WorkQStream
       }
 
       mt_logging::logger().log(
-          {fmt::format("XCLAIMED message:     [STREAM {}       CLAIM ID {}]", stream, claim_xid),
+          {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {} {}]", stream, claim_xid, claim_resp.value().empty()),
            mt_logging::LogLevel::Info,
            true});
 
