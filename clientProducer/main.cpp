@@ -91,7 +91,7 @@ int main(int argc, char **argv)
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
       std::cout << "Press any key to publish..." << std::endl;
       char key = read_getch();
       std::cerr << "[" << key << "]" << std::endl;

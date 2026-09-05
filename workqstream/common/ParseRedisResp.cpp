@@ -11,7 +11,7 @@ namespace WorkQStream
   {
     auto ancestorNode = (index > 1) ? resp.value().at(index - 2) : n;
     auto prevNode = (index > 0) ? resp.value().at(index - 1) : n;
-    std::cout << "\n----parse_dispatch_view-----------------------------------" << std::endl;
+    std::cout << "\n----parse_resp3-----------------------------------" << std::endl;
     std::cout << "Reference " << index << std::endl;
     if (ancestorNode != n)
     {
@@ -111,9 +111,12 @@ namespace WorkQStream
 
     PendingEntry current{};
     int expecting = 0; // how many children left to read
-
+    int index = 0;
     for (auto const &n : resp.value())
     {
+      //trace_parse(resp, index, n);
+      //index++;
+
       // Start of a new XPENDING entry
       if (n.depth == 1 && n.aggregate_size == 4)
       {
@@ -207,8 +210,13 @@ namespace WorkQStream
 
   std::string parse_xclaim_id(const redis::generic_response &resp)
   {
+    //std::cerr << "##### Parse Xclaim\n";
+    int index = 0;
     for (auto const &n : resp.value())
     {
+
+      //trace_parse(resp, index, n);
+
       // XCLAIM returns the ID at depth=2 as a blob_string
       if (n.depth == 2 &&
           n.data_type == boost::redis::resp3::type::blob_string &&
@@ -216,6 +224,7 @@ namespace WorkQStream
       {
         return std::string(n.value);
       }
+      index++;
     }
     return ""; // XCLAIM failed or returned JUSTID empty
   }
