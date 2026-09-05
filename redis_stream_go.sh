@@ -45,7 +45,7 @@ if compgen -G "output_*" > /dev/null; then
   rm output_* 
 fi
 
-export MTLOG_LEVEL=info
+export MTLOG_LEVEL=debug
 
 sleep .4
 export WORKER_RECOVER_PENDING=off

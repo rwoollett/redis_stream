@@ -885,15 +885,18 @@ namespace WorkQStream
     if (ec)
       co_return false;
 
-    // XCLAIM returns an array of IDs it claimed.
     // If empty → nothing claimed.
     if (resp.value().empty())
       co_return false;
 
-    // Should contain exactly one ID
-    auto &node = resp.value().front();
+    std::string claim_xid = parse_xclaim_id(resp);
+    mt_logging::logger().log(
+        {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),
+         mt_logging::LogLevel::Debug,
+         true});
 
-    if (node.value.empty())
+    // XCLAIM returns an array of IDs it claimed.
+    if (claim_xid.empty())
       co_return false;
 
     // If Redis returned the ID, XCLAIM succeeded
