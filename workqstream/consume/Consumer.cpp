@@ -707,6 +707,33 @@ namespace WorkQStream
     return fut.get();
   }
 
+  DispatchView Consumer::fields_for_xid_now(
+      const std::string &stream,
+      const std::string &xid)
+  {
+    std::promise<DispatchView> p;
+    auto fut = p.get_future();
+
+    asio::dispatch(
+        m_write_strand,
+        [this, stream, xid, &p]() mutable
+        {
+          asio::co_spawn(
+              m_write_strand,
+              [this, stream, xid, &p]() mutable -> asio::awaitable<void>
+              {
+                DispatchView dv =
+                    co_await fields_for_xid(stream, xid);
+
+                p.set_value(std::move(dv));
+                co_return;
+              },
+              asio::detached);
+        });
+
+    return fut.get();
+  }
+
   void Consumer::xpending_oldest_across_streams_now(
       std::vector<std::string> streams,
       std::string group,
@@ -1011,6 +1038,26 @@ namespace WorkQStream
          true});
     oldest_xid = p.id;
     callback(std::string(stream), oldest_xid);
+  }
+
+  asio::awaitable<DispatchView> Consumer::fields_for_xid(
+      const std::string &stream,
+      const std::string &xid)
+  {
+    redis::request req;
+    req.push("XRANGE", stream, xid, xid);
+
+    redis::generic_response resp;
+    co_await m_conn_write->async_exec(
+        req,
+        resp,
+        asio::use_awaitable);
+
+    auto items = parse_xrange(resp);
+    if (items.empty())
+      co_return DispatchView{}; // or throw
+
+    co_return items.front();
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)

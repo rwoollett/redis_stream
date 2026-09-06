@@ -125,8 +125,7 @@ void worker_thread(std::string worker_id)
     redisConsumer.xclaim_now(oldest_stream, group, worker_id, oldest_xid);
 
     // 4. Check current owner
-    std::string owner = redisConsumer.xpending_owner_now(
-        oldest_stream, group, oldest_xid);
+    std::string owner = redisConsumer.xpending_owner_now(oldest_stream, group, oldest_xid);
 
     mt_logging::logger().log(
         {fmt::format("---  Steal ownership:   [WORKER {}    STREAM {}      XID {}     STEALED OWNER {}, BACKOFF {}]",
@@ -175,8 +174,7 @@ void worker_thread(std::string worker_id)
       }
 
       // 7. Re-check ownership inside CS
-      owner = redisConsumer.xpending_owner_now(
-          oldest_stream, group, oldest_xid);
+      owner = redisConsumer.xpending_owner_now(oldest_stream, group, oldest_xid);
 
       mt_logging::logger().log(
           {fmt::format("#&!  Owner recheck:     [WORKER {}    STREAM {}      XID {}    OWNER {}   CHECK {}]",
@@ -205,10 +203,11 @@ void worker_thread(std::string worker_id)
         td = 120 + (rand() % 200);
       else
         td = 50;
+      auto dv = redisConsumer.fields_for_xid_now(oldest_stream, oldest_xid);
 
       mt_logging::logger().log(
-          {fmt::format("#&!  Process XID:       [WORKER {}    STREAM {}      XID {}  TIME {}]",
-                       worker_id, oldest_stream, oldest_xid, td),
+          {fmt::format("#&!  Process XID:       [WORKER {}    STREAM {}      XID {}  TIME {}] Fields {}",  
+                       worker_id, oldest_stream, oldest_xid, td, fmt::join(dv.fields, ", ")),
            mt_logging::LogLevel::Debug, true});
 
       std::this_thread::sleep_for(std::chrono::milliseconds(td));
@@ -224,7 +223,7 @@ void worker_thread(std::string worker_id)
       if (oldest_stream == "liveposts_moderate_Job")
       {
         // 9. DLQ send - XACK later as normal
-        auto fut = redisConsumer.send_to_dlq_wait_now(oldest_stream, oldest_xid, {});
+        auto fut = redisConsumer.send_to_dlq_wait_now(oldest_stream, oldest_xid, WorkQStream::convert_fields(dv));
         auto ec = fut.get();
         if (ec)
         {
@@ -236,8 +235,8 @@ void worker_thread(std::string worker_id)
         else
         {
           mt_logging::logger().log(
-              {fmt::format("#&!  DLQ XADD OK        [WORKER {}    STREAM {}      XID {}]",
-                           worker_id, oldest_stream, oldest_xid),
+              {fmt::format("#&!  DLQ XADD OK        [WORKER {}    STREAM {}      XID {}] Fields {}",
+                           worker_id, oldest_stream, oldest_xid, fmt::join(WorkQStream::convert_fields(dv), ", ")),
                mt_logging::LogLevel::Info, true});
         }
       }
@@ -257,8 +256,8 @@ void worker_thread(std::string worker_id)
       else
       {
         mt_logging::logger().log(
-            {fmt::format("#&!  XACK OK            [WORKER {}    STREAM {}      XID {}]",
-                         worker_id, oldest_stream, oldest_xid),
+            {fmt::format("#&!  XACK OK            [WORKER {}    STREAM {}      XID {}]  Fields {}",
+                         worker_id, oldest_stream, oldest_xid, fmt::join(dv.fields, ", ")),
              mt_logging::LogLevel::Info, true});
       }
     }
