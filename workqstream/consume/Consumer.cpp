@@ -707,11 +707,11 @@ namespace WorkQStream
     return fut.get();
   }
 
-  DispatchView Consumer::fields_for_xid_now(
+  FieldMap Consumer::fields_for_xid_now(
       const std::string &stream,
       const std::string &xid)
   {
-    std::promise<DispatchView> p;
+    std::promise<FieldMap> p;
     auto fut = p.get_future();
 
     asio::dispatch(
@@ -722,10 +722,10 @@ namespace WorkQStream
               m_write_strand,
               [this, stream, xid, &p]() mutable -> asio::awaitable<void>
               {
-                DispatchView dv =
+                FieldMap fm =
                     co_await fields_for_xid(stream, xid);
 
-                p.set_value(std::move(dv));
+                p.set_value(std::move(fm));
                 co_return;
               },
               asio::detached);
@@ -1040,7 +1040,7 @@ namespace WorkQStream
     callback(std::string(stream), oldest_xid);
   }
 
-  asio::awaitable<DispatchView> Consumer::fields_for_xid(
+  asio::awaitable<FieldMap> Consumer::fields_for_xid(
       const std::string &stream,
       const std::string &xid)
   {
@@ -1055,9 +1055,9 @@ namespace WorkQStream
 
     auto items = parse_xrange(resp);
     if (items.empty())
-      co_return DispatchView{}; // or throw
+      co_return FieldMap{}; // or throw
 
-    co_return items.front();
+    co_return convert_fields(items.front());
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)

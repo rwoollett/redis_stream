@@ -114,8 +114,8 @@ namespace WorkQStream
     int index = 0;
     for (auto const &n : resp.value())
     {
-      //trace_parse(resp, index, n);
-      //index++;
+      // trace_parse(resp, index, n);
+      // index++;
 
       // Start of a new XPENDING entry
       if (n.depth == 1 && n.aggregate_size == 4)
@@ -210,12 +210,12 @@ namespace WorkQStream
 
   std::string parse_xclaim_id(const redis::generic_response &resp)
   {
-    //std::cerr << "##### Parse Xclaim\n";
+    // std::cerr << "##### Parse Xclaim\n";
     int index = 0;
     for (auto const &n : resp.value())
     {
 
-      //trace_parse(resp, index, n);
+      // trace_parse(resp, index, n);
 
       // XCLAIM returns the ID at depth=2 as a blob_string
       if (n.depth == 2 &&
@@ -229,9 +229,9 @@ namespace WorkQStream
     return ""; // XCLAIM failed or returned JUSTID empty
   }
 
-  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item)
+  FieldMap convert_fields(const DispatchView &item)
   {
-    std::unordered_map<std::string, std::string> field_map;
+    FieldMap field_map;
     field_map.reserve(item.fields.size());
     for (auto &[k, v] : item.fields)
       field_map.emplace(std::string(k), std::string(v));

@@ -120,7 +120,7 @@ namespace WorkQStream
         const std::string &group,
         const std::string &xid);
 
-    DispatchView fields_for_xid_now(
+    FieldMap fields_for_xid_now(
         const std::string &stream,
         const std::string &xid);
 
@@ -162,7 +162,7 @@ namespace WorkQStream
     asio::awaitable<void> xpending_oldest(std::string_view stream_view, std::string_view group,
                                           std::function<void(std::string, std::string)> callback);
 
-    asio::awaitable<DispatchView> fields_for_xid(const std::string &stream, const std::string &xid);
+    asio::awaitable<FieldMap> fields_for_xid(const std::string &stream, const std::string &xid);
 
     void push_dlq_xadd(redis::request &req,
                        const std::string &stream,

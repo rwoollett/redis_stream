@@ -16,6 +16,8 @@ namespace WorkQStream
     long delivery_count;
   };
 
+  using FieldMap = std::unordered_map<std::string, std::string>;
+
   struct DispatchView
   {
     std::string_view stream;
@@ -29,6 +31,6 @@ namespace WorkQStream
   std::string parse_xclaim_id(const redis::generic_response& resp);
 
 
-  std::unordered_map<std::string, std::string> convert_fields(const DispatchView &item);
+  FieldMap convert_fields(const DispatchView &item);
 
 }

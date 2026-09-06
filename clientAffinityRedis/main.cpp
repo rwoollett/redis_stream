@@ -203,11 +203,11 @@ void worker_thread(std::string worker_id)
         td = 120 + (rand() % 200);
       else
         td = 50;
-      auto dv = redisConsumer.fields_for_xid_now(oldest_stream, oldest_xid);
+      auto fields_for_xid = redisConsumer.fields_for_xid_now(oldest_stream, oldest_xid);
 
       mt_logging::logger().log(
           {fmt::format("#&!  Process XID:       [WORKER {}    STREAM {}      XID {}  TIME {}] Fields {}",  
-                       worker_id, oldest_stream, oldest_xid, td, fmt::join(dv.fields, ", ")),
+                       worker_id, oldest_stream, oldest_xid, td, fmt::join(fields_for_xid, ", ")),
            mt_logging::LogLevel::Debug, true});
 
       std::this_thread::sleep_for(std::chrono::milliseconds(td));
@@ -223,7 +223,7 @@ void worker_thread(std::string worker_id)
       if (oldest_stream == "liveposts_moderate_Job")
       {
         // 9. DLQ send - XACK later as normal
-        auto fut = redisConsumer.send_to_dlq_wait_now(oldest_stream, oldest_xid, WorkQStream::convert_fields(dv));
+        auto fut = redisConsumer.send_to_dlq_wait_now(oldest_stream, oldest_xid, fields_for_xid);
         auto ec = fut.get();
         if (ec)
         {
@@ -236,7 +236,7 @@ void worker_thread(std::string worker_id)
         {
           mt_logging::logger().log(
               {fmt::format("#&!  DLQ XADD OK        [WORKER {}    STREAM {}      XID {}] Fields {}",
-                           worker_id, oldest_stream, oldest_xid, fmt::join(WorkQStream::convert_fields(dv), ", ")),
+                           worker_id, oldest_stream, oldest_xid, fmt::join(fields_for_xid, ", ")),
                mt_logging::LogLevel::Info, true});
         }
       }
@@ -257,7 +257,7 @@ void worker_thread(std::string worker_id)
       {
         mt_logging::logger().log(
             {fmt::format("#&!  XACK OK            [WORKER {}    STREAM {}      XID {}]  Fields {}",
-                         worker_id, oldest_stream, oldest_xid, fmt::join(dv.fields, ", ")),
+                         worker_id, oldest_stream, oldest_xid, fmt::join(fields_for_xid, ", ")),
              mt_logging::LogLevel::Info, true});
       }
     }
