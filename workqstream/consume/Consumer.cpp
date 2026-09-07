@@ -23,6 +23,7 @@ namespace WorkQStream
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const char *REDIS_XCLAIM_MIN_IDLE = std::getenv("REDIS_XCLAIM_MIN_IDLE");
+  static const char *REDIS_XREADGROUP_BLOCK = std::getenv("REDIS_XREADGROUP_BLOCK");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 10;
   static const int RECOVER_PENDING_DELAY = 10;
@@ -57,9 +58,10 @@ namespace WorkQStream
     if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr || REDIS_PORT == nullptr ||
         REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr ||
-        REDIS_XCLAIM_MIN_IDLE == nullptr)
+        REDIS_XCLAIM_MIN_IDLE == nullptr ||
+        REDIS_XREADGROUP_BLOCK == nullptr)
     {
-      throw std::runtime_error("The environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_XCLAIM_MIN_IDLE and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("The environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_XREADGROUP_BLOCK, REDIS_XCLAIM_MIN_IDLE and REDIS_USE_SSL must be set.");
     }
 
     m_is_connected.store(false);
@@ -69,8 +71,13 @@ namespace WorkQStream
     m_cstoken_message_count.store(0);
 
     mt_logging::logger().log(
-        {"Redis Consumer created",
-         mt_logging::LogLevel::Info, true});
+        {fmt::format("Redis Consumer created\n"
+          " o WORKER_GROUP            {} \n"
+          " o WORKER ID               {} \n"
+          " o REDIS_XCLAIM_MIN_IDLE:  {} \n"
+          " o REDIS_XREADGROUP_BLOCK: {}", WORKER_GROUP, workerId, REDIS_XCLAIM_MIN_IDLE, REDIS_XREADGROUP_BLOCK),
+         mt_logging::LogLevel::Info,
+         true});
 
     for (const auto &s : get_worker_group(m_group_config).streams)
     {
@@ -201,7 +208,7 @@ namespace WorkQStream
     args.push_back(WORKER_GROUP);
     args.push_back(m_worker_id);
     args.push_back("BLOCK");
-    args.push_back("5000");
+    args.push_back(std::string(std::getenv("REDIS_XREADGROUP_BLOCK")));
     args.push_back("STREAMS");
 
     size_t index = 0;
