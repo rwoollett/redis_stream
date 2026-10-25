@@ -313,6 +313,10 @@ namespace WorkQStream
 
     co_await conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
+    mt_logging::logger().log(
+        {fmt::format("XPENDING ec            [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
+         mt_logging::LogLevel::Info,
+         true});
     if (ec)
     {
       mt_logging::logger().log(
@@ -325,7 +329,7 @@ namespace WorkQStream
     auto pendings = parse_xpending(resp);
     mt_logging::logger().log(
         {fmt::format("XPENDING parse xpending done {}] ", stream),
-         mt_logging::LogLevel::Error,
+         mt_logging::LogLevel::Info,
          true});
     if (pendings.empty())
       co_return;
