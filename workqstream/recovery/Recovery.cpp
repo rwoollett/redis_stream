@@ -155,12 +155,12 @@ namespace WorkQStream
     for (auto &stream : m_valid_streams)
     {
       mt_logging::logger().log(
-          {fmt::format("run_recovery_mode [pending] - stream {}", stream),
+          {fmt::format("run_recovery_mode        [pending] - stream {}", stream),
            mt_logging::LogLevel::Debug,
            true});
       co_await recover_pending_with_conn(stream, conn);
       mt_logging::logger().log(
-          {fmt::format("run_recovery_mode [trim]    - stream {}", stream),
+          {fmt::format("run_recovery_mode        [trim]    - stream {}", stream),
            mt_logging::LogLevel::Debug,
            true});
       co_await trim_stream_with_conn(stream, conn);
@@ -316,7 +316,7 @@ namespace WorkQStream
     if (!resp)
     {
       mt_logging::logger().log(
-          {fmt::format("XPENDING command fail [STREAM {}      WORKER GROUP {}] {} resp error = {}",
+          {fmt::format("XPENDING command fail    [STREAM {}      WORKER GROUP {}] {} resp error = {}",
                        stream,
                        WORKER_GROUP,
                        ec.message(),
@@ -329,7 +329,7 @@ namespace WorkQStream
     if (ec)
     {
       mt_logging::logger().log(
-          {fmt::format("XPENDING fail         [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
+          {fmt::format("XPENDING fail            [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
            mt_logging::LogLevel::Error,
            true});
       co_return;
@@ -416,9 +416,8 @@ namespace WorkQStream
       co_return;
 
     redis::request req;
-    redis::generic_response resp;
     mt_logging::logger().log(
-        {fmt::format("XTRIM data            [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
+        {fmt::format("XTRIM data               [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
          mt_logging::LogLevel::Info,
          true});
 
@@ -426,25 +425,12 @@ namespace WorkQStream
 
     boost::system::error_code ec;
     co_await asio::steady_timer(ex, std::chrono::milliseconds(150)).async_wait(asio::use_awaitable);
-    co_await conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-
-    if (!resp)
-    {
-      mt_logging::logger().log(
-          {fmt::format("XTRIM    command fail [STREAM {}      WORKER GROUP {}] {} resp error = {}",
-                       stream,
-                       WORKER_GROUP,
-                       ec.message(),
-                       resp.error().diagnostic),
-           mt_logging::LogLevel::Info,
-           true});
-      co_return;
-    }
+    co_await conn->async_exec(req, redis::ignore, asio::redirect_error(asio::use_awaitable, ec));
 
     if (ec)
     {
       mt_logging::logger().log(
-          {fmt::format("XTRIM failed          [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
+          {fmt::format("XTRIM failed             [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
            mt_logging::LogLevel::Error,
            true});
     }
