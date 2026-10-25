@@ -313,10 +313,27 @@ namespace WorkQStream
 
     co_await conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
+    std::string diagnosis;
+    if (!resp)
+    {
+      diagnosis = "resp error = " + resp.error().diagnostic;
+    }
     mt_logging::logger().log(
-        {fmt::format("XPENDING ec            [STREAM {}      WORKER GROUP {}] {}", stream, WORKER_GROUP, ec.message()),
+        {fmt::format("XPENDING ec            [STREAM {}      WORKER GROUP {}] {} {}",
+                     stream,
+                     WORKER_GROUP,
+                     ec.message(),
+                     diagnosis),
          mt_logging::LogLevel::Info,
          true});
+
+    if (!resp)
+    {
+      co_return;
+    }
+
+    std::cout << "got response\n";
+
     if (ec)
     {
       mt_logging::logger().log(
@@ -326,6 +343,10 @@ namespace WorkQStream
       co_return;
     }
 
+    mt_logging::logger().log(
+        {fmt::format("XPENDING parse xpending before {}] ", stream),
+         mt_logging::LogLevel::Info,
+         true});
     auto pendings = parse_xpending(resp);
     mt_logging::logger().log(
         {fmt::format("XPENDING parse xpending done {}] ", stream),
