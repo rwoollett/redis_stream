@@ -114,8 +114,8 @@ namespace WorkQStream
     int index = 0;
     for (auto const &n : resp.value())
     {
-      // trace_parse(resp, index, n);
-      // index++;
+      trace_parse(resp, index, n);
+      index++;
 
       // Start of a new XPENDING entry
       if (n.depth == 1 && n.aggregate_size == 4)

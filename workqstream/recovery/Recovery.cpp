@@ -154,7 +154,15 @@ namespace WorkQStream
 
     for (auto &stream : m_valid_streams)
     {
+      mt_logging::logger().log(
+          {fmt::format("run_recovery_mode [pending] - stream {}", stream),
+           mt_logging::LogLevel::Debug,
+           true});
       co_await recover_pending_with_conn(stream, conn);
+      mt_logging::logger().log(
+          {fmt::format("run_recovery_mode [trim]    - stream {}", stream),
+           mt_logging::LogLevel::Debug,
+           true});
       co_await trim_stream_with_conn(stream, conn);
     }
     co_return;
@@ -315,6 +323,10 @@ namespace WorkQStream
     }
 
     auto pendings = parse_xpending(resp);
+    mt_logging::logger().log(
+        {fmt::format("XPENDING parse xpending done {}] ", stream),
+         mt_logging::LogLevel::Error,
+         true});
     if (pendings.empty())
       co_return;
 
