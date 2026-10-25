@@ -1,6 +1,5 @@
 #include "ParseRedisResp.h"
 #include <iostream>
-#include <mtlog/mt_log.hpp>
 
 namespace WorkQStream
 {
@@ -111,41 +110,12 @@ namespace WorkQStream
     std::vector<PendingEntry> out;
     PendingEntry current{};
     int expecting = 0; // how many children left to read
-    int index = 0;
-
-    mt_logging::logger().log(
-        {fmt::format("XPENDING parse_xpending {} ", expecting),
-         mt_logging::LogLevel::Info,
-         true});
-
-    // auto first = resp.begin();
-
-    // if (first != resp.end() &&
-    //     first->data_type == boost::redis::resp3::type::simple_error)
-    // {
-    //   std::string err{first->value.data(), first->value.size()};
-
-    //   if (err.starts_with("NOGROUP"))
-    //     co_return;
-    // }
-    // for (auto const &n : resp)
-    // {
-    //   if (n.data_type == boost::redis::resp3::type::simple_error)
-    //   {
-    //     std::string err{n.value.data(), n.value.size()};
-
-    //     if (err.starts_with("NOGROUP"))
-    //     {
-    //       // handle missing group
-    //       return out;
-    //     }
-    //   }
-    // }
+    //int index = 0;
 
     for (auto const &n : resp.value())
     {
-      trace_parse(resp, index, n);
-      index++;
+      // trace_parse(resp, index, n);
+      //index++;
 
       // Start of a new XPENDING entry
       if (n.depth == 1 && n.aggregate_size == 4)

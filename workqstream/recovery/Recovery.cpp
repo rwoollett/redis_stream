@@ -313,26 +313,18 @@ namespace WorkQStream
 
     co_await conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
-    std::string diagnosis;
     if (!resp)
     {
-      diagnosis = "resp error = " + resp.error().diagnostic;
-    }
-    mt_logging::logger().log(
-        {fmt::format("XPENDING ec            [STREAM {}      WORKER GROUP {}] {} {}",
-                     stream,
-                     WORKER_GROUP,
-                     ec.message(),
-                     diagnosis),
-         mt_logging::LogLevel::Info,
-         true});
-
-    if (!resp)
-    {
+      mt_logging::logger().log(
+          {fmt::format("XPENDING command fail [STREAM {}      WORKER GROUP {}] {} resp error = {}",
+                       stream,
+                       WORKER_GROUP,
+                       ec.message(),
+                       resp.error().diagnostic),
+           mt_logging::LogLevel::Info,
+           true});
       co_return;
     }
-
-    std::cout << "got response\n";
 
     if (ec)
     {
@@ -343,15 +335,7 @@ namespace WorkQStream
       co_return;
     }
 
-    mt_logging::logger().log(
-        {fmt::format("XPENDING parse xpending before {}] ", stream),
-         mt_logging::LogLevel::Info,
-         true});
     auto pendings = parse_xpending(resp);
-    mt_logging::logger().log(
-        {fmt::format("XPENDING parse xpending done {}] ", stream),
-         mt_logging::LogLevel::Info,
-         true});
     if (pendings.empty())
       co_return;
 
@@ -432,6 +416,7 @@ namespace WorkQStream
       co_return;
 
     redis::request req;
+    redis::generic_response resp;
     mt_logging::logger().log(
         {fmt::format("XTRIM data            [STREAM {}      WORKER GROUP {}]", stream, WORKER_GROUP),
          mt_logging::LogLevel::Info,
@@ -441,7 +426,20 @@ namespace WorkQStream
 
     boost::system::error_code ec;
     co_await asio::steady_timer(ex, std::chrono::milliseconds(150)).async_wait(asio::use_awaitable);
-    co_await conn->async_exec(req, redis::ignore, asio::redirect_error(asio::use_awaitable, ec));
+    co_await conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+
+    if (!resp)
+    {
+      mt_logging::logger().log(
+          {fmt::format("XTRIM    command fail [STREAM {}      WORKER GROUP {}] {} resp error = {}",
+                       stream,
+                       WORKER_GROUP,
+                       ec.message(),
+                       resp.error().diagnostic),
+           mt_logging::LogLevel::Info,
+           true});
+      co_return;
+    }
 
     if (ec)
     {
