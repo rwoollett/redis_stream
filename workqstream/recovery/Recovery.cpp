@@ -28,7 +28,7 @@ namespace WorkQStream
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 10;
-  static const int RECOVER_PENDING_DELAY = 10;
+  static const int RECOVER_PENDING_DELAY = 60; // one minutes
   static const int TRIM_STREAM_DELAY = 60;
   static const int TRIM_STREAM_SIZE = 50000;
 
