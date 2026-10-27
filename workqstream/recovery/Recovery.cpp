@@ -389,17 +389,20 @@ namespace WorkQStream
       }
 
       // Claim the message to count up delivery of poisoned msg
-      redis::request claim;
-      claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
-      redis::generic_response claim_resp;
-      co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
 
-      std::string claim_xid = parse_xclaim_id(claim_resp);
+      // ?? Decided to do nothing here ??
+      // redis::request claim;
+      // claim.push("XCLAIM", stream, WORKER_GROUP, m_worker_id, "0", p.id);
+      // redis::generic_response claim_resp;
+      // co_await conn->async_exec(claim, claim_resp, asio::use_awaitable);
 
-      mt_logging::logger().log(
-          {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),
-           mt_logging::LogLevel::Info,
-           true});
+      // std::string claim_xid = parse_xclaim_id(claim_resp);
+
+      // mt_logging::logger().log(
+      //     {fmt::format("XCLAIMED message:     [STREAM {}       CLAIMED ID {}]", stream, claim_xid),
+      //      mt_logging::LogLevel::Info,
+      //      true});
+      // ?? End of Decided to do nothing here ??
     }
 
     co_return;
