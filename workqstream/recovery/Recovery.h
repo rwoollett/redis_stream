@@ -49,6 +49,7 @@ namespace WorkQStream
     boost::asio::signal_set m_signals;
     std::thread m_receiver_thread;
     std::atomic<bool> m_signal_status;
+    asio::steady_timer shutdown_timer;
     std::string m_worker_id;
     GroupConfigMap m_group_config{};
     std::unordered_set<std::string> m_valid_streams{};

@@ -37,6 +37,7 @@ namespace WorkQStream
   Recovery::Recovery(
       const std::string &workerId) : m_ioc{3},
                                      m_signals(m_ioc.get_executor()),
+                                     shutdown_timer(m_ioc.get_executor()),
                                      m_worker_id(workerId),
                                      m_group_config(load_group_config()),
                                      m_valid_streams{}
@@ -107,6 +108,7 @@ namespace WorkQStream
         [&](const boost::system::error_code &, int)
         {
           m_signal_status.store(true);
+          shutdown_timer.cancel();
         });
   }
 
@@ -206,7 +208,10 @@ namespace WorkQStream
             {fmt::format("co_main recover and xtrim."),
              mt_logging::LogLevel::Info,
              true});
-        co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY)).async_wait(asio::use_awaitable);
+
+        shutdown_timer.expires_after(std::chrono::seconds(RECOVER_PENDING_DELAY));
+        co_await shutdown_timer.async_wait(asio::use_awaitable);
+        //co_await asio::steady_timer(ex, std::chrono::seconds(RECOVER_PENDING_DELAY)).async_wait(asio::use_awaitable);
       }
     }
     catch (const std::exception &e)
