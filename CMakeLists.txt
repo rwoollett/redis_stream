@@ -37,7 +37,7 @@ set(Boost_USE_STATIC_RUNTIME ON)
 find_package(Boost 1.86 REQUIRED)
 
 find_package(nlohmann_json REQUIRED)
-find_package(MTLog REQUIRED)
+# find_package(MTLog REQUIRED)
 find_package(fmt REQUIRED)
 
 option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
