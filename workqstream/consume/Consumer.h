@@ -110,6 +110,10 @@ namespace WorkQStream
     void xpending_oldest_now(std::string stream, std::string group,
                              std::function<void(std::string, std::string)> callback);
 
+    std::pair<std::string, std::string>
+    xpending_oldest_across_streams(std::vector<std::string> streams,
+                                   std::string group);
+
     void xpending_oldest_across_streams_now(
         std::vector<std::string> streams,
         std::string group,

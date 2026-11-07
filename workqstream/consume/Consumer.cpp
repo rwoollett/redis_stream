@@ -72,10 +72,11 @@ namespace WorkQStream
 
     mt_logging::logger().log(
         {fmt::format("Redis Consumer created\n"
-          " o WORKER_GROUP            {} \n"
-          " o WORKER ID               {} \n"
-          " o REDIS_XCLAIM_MIN_IDLE:  {} \n"
-          " o REDIS_XREADGROUP_BLOCK: {}", WORKER_GROUP, workerId, REDIS_XCLAIM_MIN_IDLE, REDIS_XREADGROUP_BLOCK),
+                     " o WORKER_GROUP            {} \n"
+                     " o WORKER ID               {} \n"
+                     " o REDIS_XCLAIM_MIN_IDLE:  {} \n"
+                     " o REDIS_XREADGROUP_BLOCK: {}",
+                     WORKER_GROUP, workerId, REDIS_XCLAIM_MIN_IDLE, REDIS_XREADGROUP_BLOCK),
          mt_logging::LogLevel::Info,
          true});
 
@@ -739,6 +740,28 @@ namespace WorkQStream
         });
 
     return fut.get();
+  }
+
+  std::pair<std::string, std::string>
+  Consumer::xpending_oldest_across_streams(std::vector<std::string> streams,
+                                           std::string group)
+  {
+    auto promise =
+        std::make_shared<
+            std::promise<std::pair<std::string, std::string>>>();
+
+    auto future = promise->get_future();
+
+    xpending_oldest_across_streams_now(
+        streams,
+        group,
+        [promise](std::string s, std::string x)
+        {
+          promise->set_value(
+              {std::move(s), std::move(x)});
+        });
+
+    return future.get();
   }
 
   void Consumer::xpending_oldest_across_streams_now(
