@@ -1,96 +1,128 @@
 {
-  "version": 3,
-  "cmakeMinimumRequired": {
-    "major": 3,
-    "minor": 21
-  },
-
-  "configurePresets": [
-    {
-      "name": "debug",
-      "displayName": "Debug (Linux)",
-      "generator": "Unix Makefiles",
-      "binaryDir": "build/debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_WORKQ_TESTS": "ON",
-        "CMAKE_INSTALL_PREFIX": "/usr/local"
-      }
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21
     },
-
-    {
-      "name": "release",
-      "displayName": "Release (Linux)",
-      "generator": "Unix Makefiles",
-      "binaryDir": "build/release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_WORKQ_TESTS": "OFF",
-        "CMAKE_INSTALL_PREFIX": "/usr/local"
-      }
-    },
-
-    {
-      "name": "windows-debug",
-      "displayName": "Debug (Windows MSYS2)",
-      "generator": "Ninja",
-      "binaryDir": "build/windows-debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_WORKQ_TESTS": "ON",
-        "CMAKE_C_COMPILER": "C:/msys64/mingw64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
-        "CMAKE_INSTALL_PREFIX": "C:/msys64/mingw64"
-      }
-    },
-
-    {
-      "name": "windows-release",
-      "displayName": "Release (Windows MSYS2)",
-      "generator": "Ninja",
-      "binaryDir": "build/windows-release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_WORKQ_TESTS": "OFF",
-        "CMAKE_C_COMPILER": "C:/msys64/mingw64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
-        "CMAKE_INSTALL_PREFIX": "C:/msys64/mingw64"
-      }
-    },
-
-    {
-      "name": "tsan",
-      "displayName": "ThreadSanitizer Build (Linux)",
-      "description": "Build with -fsanitize=thread for race detection",
-      "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build/tsan",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "TSAN",
-        "BUILD_WORKQ_TESTS": "ON",
-        "CMAKE_INSTALL_PREFIX": "/usr/local",
-        "CMAKE_CXX_FLAGS": "-fsanitize=thread -O1 -g -fno-omit-frame-pointer",
-        "CMAKE_C_FLAGS": "-fsanitize=thread -O1 -g -fno-omit-frame-pointer",
-        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
-        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
-      }
-    }
-
-  ],
-
-  "buildPresets": [
-    { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" },
-    { "name": "windows-debug", "configurePreset": "windows-debug" },
-    { "name": "windows-release", "configurePreset": "windows-release" },
-    { "name": "tsan", "configurePreset": "tsan" }
-
-  ],
-
-  "testPresets": [
-    { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" },
-    { "name": "windows-debug", "configurePreset": "windows-debug" },
-    { "name": "windows-release", "configurePreset": "windows-release" },
-    { "name": "tsan", "configurePreset": "tsan" }
-  ]
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug (Linux)",
+            "generator": "Unix Makefiles",
+            "binaryDir": "build/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "BUILD_WORKQ_TESTS": "ON",
+                "CMAKE_INSTALL_PREFIX": "/usr/local"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release (Linux)",
+            "generator": "Unix Makefiles",
+            "binaryDir": "build/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_WORKQ_TESTS": "OFF",
+                "CMAKE_INSTALL_PREFIX": "/usr/local"
+            }
+        },
+        {
+            "name": "windows-debug",
+            "displayName": "Debug (Windows MSYS2)",
+            "generator": "Ninja",
+            "binaryDir": "build/windows-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "BUILD_WORKQ_TESTS": "ON",
+                "CMAKE_C_COMPILER": "C:/msys64/mingw64/bin/gcc.exe",
+                "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
+                "CMAKE_INSTALL_PREFIX": "C:/msys64/mingw64"
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Release (Windows MSYS2)",
+            "generator": "Ninja",
+            "binaryDir": "build/windows-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_WORKQ_TESTS": "OFF",
+                "CMAKE_C_COMPILER": "C:/msys64/mingw64/bin/gcc.exe",
+                "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
+                "CMAKE_INSTALL_PREFIX": "C:/msys64/mingw64"
+            }
+        },
+        {
+            "name": "tsan",
+            "displayName": "ThreadSanitizer Build (Linux)",
+            "description": "Build with -fsanitize=thread for race detection",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/tsan",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "TSAN",
+                "BUILD_WORKQ_TESTS": "ON",
+                "CMAKE_INSTALL_PREFIX": "/usr/local",
+                "CMAKE_CXX_FLAGS": "-fsanitize=thread -O1 -g -fno-omit-frame-pointer",
+                "CMAKE_C_FLAGS": "-fsanitize=thread -O1 -g -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
+            }
+        },
+        {
+            "name": "Custom configure preset",
+            "displayName": "Custom configure preset",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug"
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release"
+        },
+        {
+            "name": "tsan",
+            "configurePreset": "tsan"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug"
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release"
+        },
+        {
+            "name": "tsan",
+            "configurePreset": "tsan"
+        }
+    ]
 }

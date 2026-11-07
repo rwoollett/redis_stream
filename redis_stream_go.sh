@@ -47,19 +47,31 @@ fi
 
 export MTLOG_LEVEL=info
 
+  
+
+
 sleep .4
 export WORKER_RECOVER_PENDING=off
 export MTLOG_LOGFILE=output_rs_consumer.log
-(./$cmakedir/$clientMode > output_consumer.log 2>&1 &)
+(TSAN_OPTIONS="halt_on_error=0 second_deadlock_stack=1 history_size=7" \
+  setarch x86_64 -R \
+  ./$cmakedir/$clientMode > output_consumer.log 2>&1 &)
+#(./$cmakedir/$clientMode > output_consumer.log 2>&1 &)
 
 sleep .4
 export WORKER_RECOVER_PENDING=on
 export MTLOG_LOGFILE=output_rs_consumer_recovery.log
-(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
+(TSAN_OPTIONS="halt_on_error=0 second_deadlock_stack=1 history_size=7" \
+  setarch x86_64 -R \
+  ./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
+#(./$cmakedir/clientRedis/ClientRedis worker_recovery > output_consumer_recovery.log 2>&1 &)
 
 sleep .4
 . ./set_env.sh
-(./$cmakedir/clientProducer/ClientProducer > output_producer.log 2>&1 &)
+(TSAN_OPTIONS="halt_on_error=0 second_deadlock_stack=1 history_size=7" \
+  setarch x86_64 -R \
+  ./$cmakedir/clientProducer/ClientProducer > output_producer.log 2>&1 &)
+#(./$cmakedir/clientProducer/ClientProducer > output_producer.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

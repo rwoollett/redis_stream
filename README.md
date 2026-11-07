@@ -28,14 +28,27 @@ cmake -DCMAKE_BUILD_TYPE=ValgrindDebug -DBUILD_WORKQ_TESTS=ON -DCMAKE_INSTALL_PR
 ## 🧪 install
 # Install Release 
 
-Ubuntu/Linux: Use build/release folder.
+# Install Release 
+
+### Ubuntu/Linux: Use build/release folder.
+```sh
 cmake -B build/release -DCMAKE_BUILD_TYPE=Release
 sudo cmake --build build/release --target install
+```
 
-Windows:
+#### TSAN local install
+
+TSAN Ubuntu/Linux: Use build/tsan folder.
+```sh
+cmake -B build/tsan -DCMAKE_BUILD_TYPE=TSAN
+sudo cmake --build build/tsan --target install
+```
+
+### Windows:
+```powershell
 cmake --preset windows-release
 cmake --build build/windows-release --target install
-
+```
 
 ## 🧪 test
 

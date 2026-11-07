@@ -3,11 +3,10 @@ project(WorkQStream VERSION 1.0
         DESCRIPTION "Redis stream for work queue produce and consume with ack message"
         LANGUAGES C CXX)
 
+# set everything up for c++ 20 features - require coroutines and BOOST_ASIO_HAS_CO_AWAIT
+set(CMAKE_CXX_STANDARD 20) 
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Add a custom build type for Valgrind/Helgrind
-set(CMAKE_CONFIGURATION_TYPES "Debug;Release;TSAN;ValgrindDebug" CACHE STRING "" FORCE)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_FLAGS_TSAN "-O1 -g -fsanitize=thread -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_TSAN "-O1 -g -fsanitize=thread -fno-omit-frame-pointer")
 set(CMAKE_EXE_LINKER_FLAGS_TSAN "-fsanitize=thread")
@@ -18,9 +17,6 @@ set(CMAKE_C_FLAGS_VALGRINDDEBUG   "-O0 -g3 -fno-omit-frame-pointer -fno-inline -
 set(CMAKE_EXE_LINKER_FLAGS_VALGRINDDEBUG "")
 set(CMAKE_SHARED_LINKER_FLAGS_VALGRINDDEBUG "")
 
-# set everything up for c++ 20 features - require coroutines and BOOST_ASIO_HAS_CO_AWAIT
-set(CMAKE_CXX_STANDARD 20) 
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (WIN32)
   cmake_policy(SET CMP0167 NEW)
 endif()
